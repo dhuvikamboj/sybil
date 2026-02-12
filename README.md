@@ -36,37 +36,48 @@ An advanced autonomous AI agent built with [Mastra](https://mastra.ai).
 npm install
 ```
 
-### 2. Configure
+### 2. Configure Telegram Bot
 
-```bash
-cp .env.example .env
-# Edit .env - add your credentials
-```
+1. Create a Telegram bot:
+   ```bash
+   # Open Telegram and search for @BotFather
+   # Send: /newbot
+   # Follow prompts to create your bot
+   # Copy the bot token (starts with "your_bot_token")
+   ```
 
-**Choose your provider:**
+2. Set up configuration:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your credentials
+   ```
 
-```env
-# OpenAI
-AI_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o
-TELEGRAM_BOT_TOKEN=your_bot_token
+3. Add your provider and Telegram token:
+   ```env
+   # OpenAI
+   AI_PROVIDER=openai
+   OPENAI_API_KEY=sk-...
+   OPENAI_MODEL=gpt-4o
+   TELEGRAM_BOT_TOKEN=your_bot_token
 
-# Or Groq (Fast, Free)
-AI_PROVIDER=groq
-GROQ_API_KEY=gsk_...
-GROQ_MODEL=llama-3.3-70b-versatile
+   # Or Groq (Fast, Free)
+   AI_PROVIDER=groq
+   GROQ_API_KEY=gsk_...
+   GROQ_MODEL=llama-3.3-70b-versatile
+   TELEGRAM_BOT_TOKEN=your_bot_token
 
-# Or NVIDIA AI (GPU)
-AI_PROVIDER=nvidia
-NVIDIA_API_KEY=nvapi-...
-NVIDIA_MODEL=nvidia/llama-3.1-nemotron-70b-instruct
+   # Or NVIDIA AI (GPU)
+   AI_PROVIDER=nvidia
+   NVIDIA_API_KEY=nvapi-...
+   NVIDIA_MODEL=nvidia/llama-3.1-nemotron-70b-instruct
+   TELEGRAM_BOT_TOKEN=your_bot_token
 
-# Or Ollama (Local, Free)
-AI_PROVIDER=ollama
-OLLAMA_MODEL=llama3.2
-OLLAMA_BASE_URL=http://localhost:11434
-```
+   # Or Ollama (Local, Free)
+   AI_PROVIDER=ollama
+   OLLAMA_MODEL=llama3.2
+   OLLAMA_BASE_URL=http://localhost:11434
+   TELEGRAM_BOT_TOKEN=your_bot_token
+   ```
 
 ### 3. Start
 
@@ -74,11 +85,20 @@ OLLAMA_BASE_URL=http://localhost:11434
 npm start
 ```
 
-### 4. Authenticate Users
+### 4. Connect Your Telegram Bot
+
+```bash
+# Start a chat with your bot on Telegram
+# Your bot will welcome you and ask for authentication
+```
+
+### 5. Authenticate Users (Optional)
+
+For secure access control:
 
 ```bash
 sybil otp
-# Generate OTP → Share 6-digit code → User sends code
+# Generate OTP → Share 6-digit code → User sends code to your bot
 ```
 
 ## CLI Commands
