@@ -4,7 +4,7 @@ import { memory } from "../mastra/memory.js";
 import { whatsappManager } from "./whatsapp-client.js";
 import { logger } from "./logger.js";
 import { getModelConfig, getProviderDisplayName } from "./model-config.js";
-import { processWithNetwork, streamWithNetwork } from "../agents/network.js";
+import { processWithNetwork } from "../agents/network.js";
 import { isAuthenticated, verifyOTP, generateOTP, storeOTP } from "./telegram-auth.js";
 
 // Configuration
@@ -117,7 +117,7 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
     // User not authenticated, send simple instructions
     await bot.sendMessage(
       chatId,
-      "🔐 Send 6-digit code from admin to unlock Sybil Bot",
+      "🔐 Send 6-digit code from admin to unlock Sybil Bot, Your chat ID is: " + chatId + "",
       { parse_mode: "Markdown" }
     );
     return;
@@ -1014,6 +1014,8 @@ async function handlePlanCommand(chatId: number, userId: number | undefined, goa
   }
 }
 
+
+
 // Handle network command
 async function handleNetworkCommand(chatId: number, userId: number | undefined, task: string): Promise<void> {
   try {
@@ -1023,7 +1025,26 @@ async function handleNetworkCommand(chatId: number, userId: number | undefined, 
 
     // Stream response
     let fullText = "";
-    await streamWithNetwork(task, session.threadId, session.resourceId, (chunk: any) => {
+
+
+    const stream = await mastra.getAgent("routingAgent").network(task, {
+      memory: {
+        thread: session.threadId,
+        resource: session.resourceId,
+      },
+      maxSteps: 100,
+      autoResumeSuspendedTools: true,
+      onIterationComplete(context) {
+        logger.info("AGENT_NETWORK", `Iteration complete`, {
+          result: context.result,
+          isComplete: context.isComplete,
+          iteration: context.iteration,
+        });
+      },
+
+    });
+
+    for await (const chunk of stream) {
       if (chunk.type === "text-delta") {
         fullText += chunk.payload.text;
 
@@ -1039,7 +1060,8 @@ async function handleNetworkCommand(chatId: number, userId: number | undefined, 
           ).catch(() => { }); // Ignore errors
         }
       }
-    });
+    }
+
 
     // Send final message
     await bot.editMessageText(

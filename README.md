@@ -30,54 +30,62 @@ An advanced autonomous AI agent built with [Mastra](https://mastra.ai).
 
 ## Quick Start
 
-### 1. Install
+### Interactive Setup (Recommended)
+```bash
+# Complete setup in one command
+sybil init
 
+# Follow the interactive wizard:
+# 1. Enter Telegram Bot Token
+# 2. Choose AI provider
+# 3. Add API key
+# 4. Configure WhatsApp (optional)
+```
+
+### Manual Setup
+
+#### 1. Install Dependencies
 ```bash
 npm install
 ```
 
-### 2. Configure Telegram Bot
+#### 2. Create Telegram Bot (Required)
+```bash
+# Open Telegram and message @BotFather
+# Send: /newbot
+# Follow prompts to create your bot
+# Copy the bot token (starts with a number followed by a colon)
+```
 
-1. Create a Telegram bot:
-   ```bash
-   # Open Telegram and search for @BotFather
-   # Send: /newbot
-   # Follow prompts to create your bot
-   # Copy the bot token (starts with "your_bot_token")
-   ```
+#### 3. Configure Environment
+```bash
+cp .env.example .env
+# Edit .env with your credentials
+```
 
-2. Set up configuration:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your credentials
-   ```
+#### 4. Environment Variables
+```env
+# Required: Telegram Bot Token (get from @BotFather)
+TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxyz
 
-3. Add your provider and Telegram token:
-   ```env
-   # OpenAI
-   AI_PROVIDER=openai
-   OPENAI_API_KEY=sk-...
-   OPENAI_MODEL=gpt-4o
-   TELEGRAM_BOT_TOKEN=your_bot_token
+# Required: Choose AI provider and add API key
+AI_PROVIDER=groq  # or openai, anthropic, google, nvidia, ollama
+GROQ_API_KEY=gsk_...
+GROQ_MODEL=llama-3.3-70b-versatile
+```
 
-   # Or Groq (Fast, Free)
-   AI_PROVIDER=groq
-   GROQ_API_KEY=gsk_...
-   GROQ_MODEL=llama-3.3-70b-versatile
-   TELEGRAM_BOT_TOKEN=your_bot_token
+#### 5. Start Bot
+```bash
+npm start
+# OR use CLI
+sybil start
+```
 
-   # Or NVIDIA AI (GPU)
-   AI_PROVIDER=nvidia
-   NVIDIA_API_KEY=nvapi-...
-   NVIDIA_MODEL=nvidia/llama-3.1-nemotron-70b-instruct
-   TELEGRAM_BOT_TOKEN=your_bot_token
-
-   # Or Ollama (Local, Free)
-   AI_PROVIDER=ollama
-   OLLAMA_MODEL=llama3.2
-   OLLAMA_BASE_URL=http://localhost:11434
-   TELEGRAM_BOT_TOKEN=your_bot_token
-   ```
+#### 6. Connect to Bot
+```bash
+# Find your bot on Telegram and start a chat
+# Bot will welcome you and guide next steps
+```
 
 ### 3. Start
 
@@ -101,28 +109,34 @@ sybil otp
 # Generate OTP → Share 6-digit code → User sends code to your bot
 ```
 
-## CLI Commands
+## CLI & TUI Commands
 
+### Interactive Terminal Interface
 ```bash
-# Management
-sybil init              # Setup wizard
-sybil start              # Start bot
-sybil stop               # Stop bot
-sybil status              # Check status
+sybil              # Launch interactive TUI menu (no arguments)
+```
 
-# Configuration
-sybil config --edit       # Interactive config
-sybil config --list       # Show all config
-
-# Logs
-sybil logs --follow       # Stream logs
+### Quick Commands
+```bash
+# Setup & Management
+sybil init         # Interactive setup wizard
+sybil start        # Start bot
+sybil stop         # Stop bot
+sybil status       # Check status
+sybil doctor       # System diagnostics
 
 # Authentication
-sybil otp                 # Generate OTP
+sybil otp --generate     # Generate OTP for user
+sybil otp --list        # List pending/authorized users
+sybil otp --revoke 123  # Revoke user access
 
-# Data
-sybil backup              # Create backup
-sybil restore <name>     # Restore backup
+# Configuration
+sybil config --edit     # Interactive config
+sybil config --list     # Show all settings
+
+# Monitoring
+sybil logs --follow     # Live logs
+sybil whatsapp --status # WhatsApp connection
 ```
 
 ## Telegram Commands
@@ -145,13 +159,16 @@ sybil restore <name>     # Restore backup
 
 ## Documentation
 
-- 📖 [Getting Started](docs/tutorials/getting-started.md)
-- 🌐 [Web Browsing](docs/tutorials/web-browsing.md)
-- 🤖 [Agent Networks](docs/tutorials/agent-networks.md)
-- 🔧 [Dynamic Tools](docs/tutorials/dynamic-tools.md)
-- 📚 [Skills System](docs/tutorials/skills.md)
-- 🧠 **[Vector Memory Guide](/Users/davindersingh/projects/dokkubot/VECTOR_MEMORY.md)**
-- 🖥️ **[Browser Control](/Users/davindersingh/projects/dokkubot/BROWSER_CONTROL.md)**
+### Quick Start
+- 📖 [Getting Started](docs/tutorials/getting-started.md) - Complete setup guide
+- 💻 [CLI TUI Guide](docs/cli-tui.md) - Interactive terminal interface
+
+### Tutorials
+- 🌐 [Web Browsing](docs/tutorials/web-browsing.md) - Browser automation
+- 🤖 [Agent Networks](docs/tutorials/agent-networks.md) - Multi-agent coordination
+- 🔧 [Dynamic Tools](docs/tutorials/dynamic-tools.md) - Tool creation
+- 📚 [Skills System](docs/tutorials/skills.md) - Skills creation
+- 🔐 [OTP Authentication](docs/cli-tui.md#otp-management) - User access control
 
 ## Architecture
 

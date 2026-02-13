@@ -1,7 +1,7 @@
 import { Agent } from "@mastra/core/agent";
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-import { createMemoryInstance } from "../mastra/memory.js";
+import { memory } from "../mastra/memory.js";
 import { getAgentProcessors } from "../processors/index.js";
 import { workspace } from "../workspace/index.js";
 import * as browserTools from "../tools/browser-tools.js";
@@ -46,7 +46,8 @@ import {
   approvePendingReplyTool,
 } from "../tools/whatsapp-autoreply-tools.js";
 import { createModel, getModelConfig, getProviderDisplayName } from "../utils/model-config.js";
-import { mastra } from "../mastra/index.js";
+// NOTE: mastra is imported lazily (via dynamic import) inside workflow tool
+// execute functions to avoid circular dependency: mastra/index.ts ↔ this file
 import { allTools, toolCategories } from "../tools/tool-registry.js";
 import {
   generateToolTool,
@@ -60,9 +61,9 @@ import {
   activateSkillTool,
   analyzeForSkillOpportunityTool,
 } from "../skills/dynamic/skill-generator.js";
+import { getSystemContext } from "../utils/system.js";
 
-// Create memory instance (standalone, no circular deps)
-const memory = createMemoryInstance();
+const systemContext = getSystemContext();
 
 // Tool: Learn from interaction
 export const learnFromInteractionTool = createTool({
@@ -230,7 +231,8 @@ export const executePlannerWorkflowTool = createTool({
     const startTime = Date.now();
 
     try {
-      // Get planner workflow from Mastra
+      // Lazy import to avoid circular dependency: mastra/index.ts ↔ autonomous-agent.ts
+      const { mastra } = await import("../mastra/index.js");
       const workflow: any = mastra.getWorkflow("plannerWorkflow");
 
       if (!workflow) {
@@ -291,7 +293,8 @@ export const executeSkillBuilderWorkflowTool = createTool({
     const startTime = Date.now();
 
     try {
-      // Get skill builder workflow from Mastra
+      // Lazy import to avoid circular dependency: mastra/index.ts ↔ autonomous-agent.ts
+      const { mastra } = await import("../mastra/index.js");
       const workflow: any = mastra.getWorkflow("skillBuilderWorkflow");
 
       if (!workflow) {
@@ -415,6 +418,7 @@ export const autonomousAgent: Agent = new Agent({
   `,
   instructions: `
     You are sybil, an autonomous AI assistant with advanced capabilities:
+    ${systemContext}
 
     ## Core Identity
     - You are helpful, proactive, and continuously learning

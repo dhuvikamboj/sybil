@@ -157,14 +157,14 @@ export function getAgentProcessors() {
       enhancedSemanticRecall, // Intelligent memory retrieval
       toolSearchProcessor, // Dynamic tool discovery
       tokenLimiterProcessor, // Context management
-      promptInjectionDetector, // Security: Block prompt injection attempts
-      piiDetector, // Privacy: Redact PII in user input
+      // promptInjectionDetector, // Security: Block prompt injection attempts
+      // piiDetector, // Privacy: Redact PII in user input
     ],
     outputProcessors: [
       batchPartsProcessor, // Stream optimization
       outputTokenLimiter, // Response length control
-      piiDetector, // Privacy: Redact PII in responses
-      moderationProcessor, // Safety: Moderate inappropriate content
+      // piiDetector, // Privacy: Redact PII in responses
+      // moderationProcessor, // Safety: Moderate inappropriate content
     ],
   };
 }

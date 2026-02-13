@@ -1,7 +1,10 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-import { whatsappManager } from "../utils/whatsapp-client.js";
-import { mastra } from "../mastra/index.js";
+
+// NOTE: whatsappManager and mastra are imported lazily (via dynamic import)
+// inside the functions that need them to avoid circular dependencies.
+// whatsapp-client.ts imports from this file, and mastra/index.ts imports
+// autonomous-agent.ts which transitively imports from this file.
 
 /**
  * Interface for queued messages
@@ -68,7 +71,7 @@ export function queueMessage(
   onDebounceComplete: (phoneNumber: string, messages: QueuedMessage[]) => void
 ): void {
   const phoneNumber = from.replace(/\D/g, "").replace(/@c\.us$/, "");
-  
+
   // Get or create queue for this contact
   let queue = messageQueues.get(phoneNumber);
   if (!queue) {
@@ -96,17 +99,17 @@ export function queueMessage(
   // Set new timeout for debouncing
   queue.timeoutId = setTimeout(() => {
     console.log(`[WhatsApp Debouncer] Debounce complete for ${message.senderName}. Processing ${queue!.messages.length} messages...`);
-    
+
     // Only process if not already processing and auto-reply is enabled
     if (!queue!.isProcessing && autoReplyConfig.enabled) {
       queue!.isProcessing = true;
       onDebounceComplete(phoneNumber, [...queue!.messages]);
-      
+
       // Clear the queue after processing
       queue!.messages = [];
       queue!.isProcessing = false;
     }
-    
+
     queue!.timeoutId = null;
   }, autoReplyConfig.debounceMs);
 }
@@ -160,7 +163,7 @@ export function shouldAutoReply(from: string): { shouldReply: boolean; reason?: 
       const repliesThisHour = Array.from(autoReplyConfig.lastReplies.entries())
         .filter(([num, time]) => num === phoneNumber && (Date.now() - time) < 3600000)
         .length;
-      
+
       if (repliesThisHour >= autoReplyConfig.maxRepliesPerHour) {
         return { shouldReply: false, reason: "Rate limit exceeded" };
       }
@@ -179,10 +182,12 @@ export async function generateSmartReplyForBatchedMessages(
   chatHistory: Array<{ body: string; fromMe: boolean }>
 ): Promise<{ reply: string; confidence: number; shouldSend: boolean; summary: string }> {
   try {
+    // Lazy import to avoid circular dependency: this file → mastra/index → autonomous-agent → ... → this file
+    const { mastra } = await import("../mastra/index.js");
     const agent = mastra.getAgent("autonomousAgent");
 
     // Combine all batched messages into a single context
-    const batchedMessagesText = messages.map((msg, index) => 
+    const batchedMessagesText = messages.map((msg, index) =>
       `[${new Date(msg.timestamp).toLocaleTimeString()}] ${msg.senderName}: ${msg.body}`
     ).join("\n");
 
@@ -222,7 +227,7 @@ CONFIDENCE: [0-100, how confident you are this is appropriate]
 SHOULD_SEND: [yes/no, whether this should be sent without human review]`;
 
     const response = await agent.generate(prompt);
-    
+
     // Parse the response
     const summaryMatch = response.text.match(/SUMMARY:\s*(.+?)(?=\nREPLY:|$)/s);
     const replyMatch = response.text.match(/REPLY:\s*(.+?)(?=\nCONFIDENCE:|$)/s);
@@ -490,6 +495,9 @@ export const approvePendingReplyTool = createTool({
   execute: async (inputData) => {
     const { phoneNumber, reply } = inputData;
 
+    // Lazy import to avoid circular dependency: this file ↔ whatsapp-client.ts
+    const { whatsappManager } = await import("../utils/whatsapp-client.js");
+
     if (!whatsappManager.getReadyState()) {
       return {
         success: false,
@@ -498,7 +506,7 @@ export const approvePendingReplyTool = createTool({
     }
 
     const result = await whatsappManager.sendMessage(phoneNumber, reply);
-    
+
     if (result.success) {
       recordReply(phoneNumber);
     }

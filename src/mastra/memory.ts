@@ -1,6 +1,6 @@
 import { LibSQLStore, LibSQLVector } from "@mastra/libsql";
 import { Memory } from "@mastra/memory";
-import { ModelRouterEmbeddingModel } from "@mastra/core/llm";
+import { fastembed } from "@mastra/fastembed";
 
 let memoryInstance: Memory | null = null;
 
@@ -24,9 +24,7 @@ export function createMemoryInstance(): Memory {
       });
 
       // Embedding model for converting messages to vectors
-      const embedder = new ModelRouterEmbeddingModel(
-        process.env.EMBEDDING_MODEL || "openai/text-embedding-3-small"
-      );
+      const embedder = fastembed.small
 
       vectorConfig = { vector, embedder };
     } catch (error) {

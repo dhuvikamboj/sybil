@@ -131,7 +131,7 @@ export const otpCommand = new Command("otp")
         {
           type: "input",
           name: "chatId",
-          message: "Enter the user's Telegram Chat ID (or press Enter to auto-detect from first message):",
+          message: "Enter the user's Telegram Chat ID:",
           default: "pending",
         },
       ]);
@@ -139,7 +139,7 @@ export const otpCommand = new Command("otp")
       const otp = generateOTP();
       const chatIdNum = chatId === "pending" ? 0 : parseInt(chatId);
       
-      if (chatId !== "pending" && isNaN(chatIdNum)) {
+      if (chatId == "pending" && isNaN(chatIdNum)) {
         console.log(chalk.red("❌ Invalid chat ID"));
         process.exit(1);
       }

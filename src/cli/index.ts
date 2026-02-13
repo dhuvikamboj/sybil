@@ -23,23 +23,13 @@ import { doctorCommand } from "./commands/doctor.js";
 
 const program = new Command();
 
-// Display banner
-console.log(
-  chalk.cyan(
-    figlet.textSync("SYBIL", {
-      font: "Big",
-      horizontalLayout: "default",
-    })
-  )
-);
-console.log(chalk.magenta("   AI Agent Management CLI\n"));
-
+// Register commands
 program
   .name("sybil")
   .description("CLI for managing Sybil AI Agent")
   .version("1.0.0");
 
-// Register commands
+// Add all commands
 program.addCommand(initCommand);
 program.addCommand(startCommand);
 program.addCommand(stopCommand);
@@ -53,9 +43,27 @@ program.addCommand(whatsappCommand);
 program.addCommand(otpCommand);
 program.addCommand(doctorCommand);
 
-// Default action - show help
-program.action(() => {
+// Show banner only when no arguments provided
+if (process.argv.length <= 2) {
+  console.log(
+    chalk.cyan(
+      figlet.textSync("SYBIL", {
+        font: "Big",
+        horizontalLayout: "default",
+      })
+    )
+  );
+  console.log(chalk.magenta("   AI Agent Management CLI\n"));
+  console.log(chalk.gray("   Use: sybil <command> [options]"));
+  console.log(chalk.gray("   Examples:"));
+  console.log(chalk.gray("   • sybil init      - Setup wizard"));
+  console.log(chalk.gray("   • sybil start     - Start bot"));
+  console.log(chalk.gray("   • sybil otp       - Generate OTP"));
+  console.log(chalk.gray("   • sybil --help    - Show all commands\n"));
+  
+  // Show help when no command provided
   program.help();
-});
+}
 
-program.parse();
+// Parse and execute commands
+program.parse(process.argv);

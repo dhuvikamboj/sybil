@@ -1,10 +1,12 @@
-import { existsSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import crypto from "crypto";
 
 const AUTH_DIR = join(homedir(), ".sybil");
 const AUTH_FILE = join(AUTH_DIR, "telegram-auth.json");
+
+console.log("Telegram auth file:", AUTH_FILE);
 
 /**
  * OTP Entry for authentication
@@ -33,7 +35,6 @@ interface AuthenticatedUser {
  */
 function ensureAuthDir(): void {
   if (!existsSync(AUTH_DIR)) {
-    const { mkdirSync } = require("fs");
     mkdirSync(AUTH_DIR, { recursive: true });
   }
 }

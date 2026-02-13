@@ -1,4 +1,6 @@
 import { createOllama } from "ollama-ai-provider-v2";
+import { createOpenAI } from '@ai-sdk/openai';
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 
 /**
  * Supported AI providers
@@ -234,12 +236,12 @@ export function createModel(config: ModelConfig = getModelConfig()): any {
 
     case "custom":
       // Custom OpenAI-compatible endpoint
-      return {
-        id: `custom/${config.model}`,
-        url: config.baseUrl,
-        apiKey: config.apiKey,
-      };
-
+      const lmstudio = createOpenAICompatible({
+      name: 'lmstudio',
+      baseURL: 'http://dhuvis-pc.local:1234/v1',
+      apiKey: config.apiKey,
+    });
+      return lmstudio(config.model);
     case "ollama-cloud":
     case "openai":
     case "anthropic":
@@ -266,7 +268,7 @@ export function createModel(config: ModelConfig = getModelConfig()): any {
  */
 export function getOptimizedGenerationParams(provider: ModelConfig | AIProvider = getModelConfig()): Record<string, any> {
   const providerId = typeof provider === "string" ? provider : provider.provider;
-  
+  debugger
   switch (providerId) {
     case "ollama":
       return {

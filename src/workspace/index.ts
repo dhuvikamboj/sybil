@@ -23,6 +23,11 @@ export function createWorkspace() {
       basePath: WORKSPACE_BASE_PATH,
     }),
     sandbox: new LocalSandbox({
+      nativeSandbox:{
+        allowSystemBinaries: true,
+      },
+      env: process.env, // Pass through environment variables for flexibility
+      isolation: process.platform === "darwin" ? "seatbelt" : "bwrap", // Use 'seatbelt' for macOS or 'bwrap' for Linux if available
       workingDirectory: WORKSPACE_BASE_PATH,
     }),
     skills: ["./skills"],
