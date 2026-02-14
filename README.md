@@ -1,32 +1,34 @@
 # Sybil - Advanced Autonomous AI Agent
 
+<p align="center">
+  <img src="assets/logo.png" alt="Sybil Logo" width="200" />
+</p>
+
 An advanced autonomous AI agent built with [Mastra](https://mastra.ai).
 
 ## Core Features
 
-🤖 **17+ AI Providers**: OpenAI, Anthropic, Google, NVIDIA, Groq, Mistral, xAI, DeepSeek, Perplexity, Cohere, Hugging Face, and more.
+🤖 **17+ AI Providers**: OpenAI, Anthropic, Google, NVIDIA, Groq, Mistral, xAI, DeepSeek, Perplexity, Cohere, Hugging Face, Together AI, Fireworks AI, Cerebras, OpenRouter, and Ollama.
 
-🧠 **Vector Memory System**: True semantic search with embeddings for intelligent memory retrieval and contextual understanding.
+🧠 **Vector Memory System**: LibSQL-based vector storage with FastEmbed embeddings for semantic search and intelligent memory retrieval.
 
-🤖 **Agent Networks**: 5 specialized AI agents (Planner, Researcher, Executor, WhatsApp, Routing) coordinated by an intelligent routing agent.
+🤖 **Agent Networks**: 4 specialized AI agents (Planner, Researcher, Executor, WhatsApp) coordinated by an intelligent Routing agent for complex multi-step workflows.
 
-🔧 **Dynamic Tools**: Create custom tools on demand with automatic code generation and validation.
+🔧 **Dynamic Tools**: Create custom tools on demand with automatic code generation and validation (33+ tools available).
 
-📚 **Dynamic Skills**: Learn new capabilities from user interactions with persistent skill storage.
+📚 **Dynamic Skills**: Learn new capabilities from user interactions with persistent skill storage and activation.
 
-🖥️ **Browser Control**: Full web browsing, page interaction, screenshots, and HTML to Markdown conversion.
+🖥️ **Browser Control**: Full Playwright-based web browsing with page interaction, screenshots, form filling, and HTML-to-Markdown conversion.
 
-🔐 **OTP Authentication**: Secure one-time password system for user verification.
+🔐 **OTP Authentication**: Secure 6-digit one-time password system for user verification and access control.
 
-📱 **Telegram Integration**: Simple, clean chat interface with simplified UX.
+📱 **Multi-Platform Messaging**: Telegram bot with streaming responses + WhatsApp Web integration with auto-reply capabilities.
 
-💬 **Streaming Responses**: Real-time message streaming with live progress feedback.
+💬 **Streaming Responses**: Real-time message streaming with live progress feedback and step-by-step execution visibility.
 
-🔒 **Safety Processors**: PII detection, content moderation, and prompt injection blocking.
+🗂️ **Sandboxed Workspace**: File operations with Podman containerized execution for safe code execution and workspace isolation.
 
-🗂️ **Workspace**: File operations with sandboxed execution for safe code execution.
-
-💾 **CLI Tools**: Complete suite of command-line management tools (13 commands).
+💾 **CLI Tools**: Interactive TUI and 12 command-line management tools for complete bot administration.
 
 ## Quick Start
 
@@ -68,10 +70,9 @@ cp .env.example .env
 # Required: Telegram Bot Token (get from @BotFather)
 TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxyz
 
-# Required: Choose AI provider and add API key
-AI_PROVIDER=groq  # or openai, anthropic, google, nvidia, ollama
-GROQ_API_KEY=gsk_...
-GROQ_MODEL=llama-3.3-70b-versatile
+# Optional: Podman Workspace Configuration (for MCP server)
+PODMAN_AGENT_ID=your-agent-id
+PODMAN_WORKSPACE_DIR=/path/to/workspace
 ```
 
 #### 5. Start Bot
@@ -113,7 +114,54 @@ sybil otp
 
 ### Interactive Terminal Interface
 ```bash
-sybil              # Launch interactive TUI menu (no arguments)
+sybil # Launch interactive TUI menu (no arguments)
+```
+
+### Available Commands (12 total)
+
+| Command | Description |
+|---------|-------------|
+| `sybil init` | Interactive setup wizard with configuration prompts |
+| `sybil start` | Start the bot service |
+| `sybil stop` | Stop the bot service |
+| `sybil status` | Check bot status and health |
+| `sybil doctor` | Run system diagnostics and health checks |
+| `sybil config` | Manage configuration (edit, list, validate) |
+| `sybil logs` | View and filter bot logs |
+| `sybil backup` | Create backup of data and configuration |
+| `sybil restore` | Restore from backup |
+| `sybil update` | Update Sybil to latest version |
+| `sybil whatsapp` | Manage WhatsApp connection and sessions |
+| `sybil otp` | OTP authentication management |
+
+### Usage Examples
+```bash
+# Interactive mode (shows TUI menu)
+sybil
+
+# Setup and configuration
+sybil init
+sybil config --edit
+
+# Service management
+sybil start
+sybil status
+sybil stop
+
+# Authentication
+sybil otp                    # Interactive OTP menu
+sybil otp --generate         # Generate new OTP code
+
+# Monitoring
+sybil logs --follow          # Live log streaming
+sybil doctor                 # System health check
+
+# WhatsApp management
+sybil whatsapp               # Interactive WhatsApp menu
+
+# Backup and maintenance
+sybil backup
+sybil update
 ```
 
 ### Quick Commands
@@ -141,6 +189,47 @@ sybil whatsapp --status # WhatsApp connection
 
 ## Telegram Commands
 
+### Basic Commands
+```
+/start          - Welcome message and bot introduction
+/help           - Show all available commands
+/status         - View your usage statistics and session info
+/memory         - Show what the bot remembers about you
+```
+
+### AI Provider Commands
+```
+/model          - Change AI provider/model (interactive selection)
+/models         - List all available AI providers
+```
+
+### Task Execution Commands
+```
+/plan <goal>    - Create a structured execution plan for complex tasks
+/network <task> - Execute multi-agent coordinated tasks
+/research <topic> - Activate research mode for information gathering
+```
+
+### Tool & Skill Management
+```
+/create-tool    - Generate a new custom tool dynamically
+/list-tools    - View all available tools
+/create-skill  - Create a new skill for specialized tasks
+/list-skills   - View and activate available skills
+```
+
+### WhatsApp Integration
+```
+/whatsapp      - Check WhatsApp connection status
+/whatsapp-send - Send a WhatsApp message
+```
+
+### Session Modes
+```
+/plan          - Switch to planning mode for complex tasks
+/research      - Switch to research mode for information gathering
+/agent         - Switch to agent network mode
+/normal        - Return to normal chat mode
 ```
 /start          - Welcome
 /help           - Commands
@@ -160,29 +249,32 @@ sybil whatsapp --status # WhatsApp connection
 ## Documentation
 
 ### Quick Start
-- 📖 [Getting Started](docs/tutorials/getting-started.md) - Complete setup guide
-- 💻 [CLI TUI Guide](docs/cli-tui.md) - Interactive terminal interface
+- 📖 [Getting Started](docs/tutorials/getting-started.md) - Complete setup and installation guide
+- 💻 [CLI Guide](docs/cli-tui.md) - Interactive terminal interface and command reference
+- 🔐 [OTP Authentication](TELEGRAM_OTP_AUTH.md) - User access control and verification
 
 ### Tutorials
-- 🌐 [Web Browsing](docs/tutorials/web-browsing.md) - Browser automation
-- 🤖 [Agent Networks](docs/tutorials/agent-networks.md) - Multi-agent coordination
-- 🔧 [Dynamic Tools](docs/tutorials/dynamic-tools.md) - Tool creation
-- 📚 [Skills System](docs/tutorials/skills.md) - Skills creation
-- 🔐 [OTP Authentication](docs/cli-tui.md#otp-management) - User access control
+- 🌐 [Web Browsing](docs/tutorials/web-browsing.md) - Browser automation with Playwright
+- 🤖 [Agent Networks](docs/tutorials/agent-networks.md) - Multi-agent coordination and workflows
+- 🔧 [Dynamic Tools](docs/tutorials/dynamic-tools.md) - Tool creation and management
+- 📚 [Skills System](docs/tutorials/skills.md) - Dynamic skill creation and activation
 
-## Architecture
+### Architecture
+- 🏗️ [Architecture Overview](docs/architecture/overview.md) - High-level system architecture
+- 🧠 [Memory System](docs/architecture/memory.md) - Vector memory and semantic search
+- 🤖 [Agent Networks](docs/architecture/agent-networks.md) - Agent coordination and routing
+- 🔧 [Tools System](docs/architecture/tools.md) - Tool registry and dynamic loading
 
-- 🏗️ [Architecture Overview](docs/architecture/overview.md)
-- 🧠 [Memory System](docs/architecture/memory.md)
-- 🤖 [Agent Networks](docs/architecture/agent-networks.md)
-- 🔧 [Tools System](docs/architecture/tools.md)
+### API Reference
+- 🖥️ [Browser Tools](docs/api/browser-tools.md) - Web automation API
+- 🤖 [Agents](docs/api/agents.md) - Agent configuration and usage
+- 🧠 [Memory](docs/api/memory.md) - Memory system API
+- 📚 [Skills](docs/tutorials/skills.md) - Skills API (see tutorials)
+- 🔧 [Tools](docs/architecture/tools.md) - Tool system reference
 
-## API Reference
-
-- 🖥️ [Browser Tools API](docs/api/browser-tools.md)
-- 🤖 [Agent API](docs/api/agents.md)
-- 🧠 [Memory API](docs/api/memory.md)
-- 📚 [Skills API](docs/api/skills.md)
+### Configuration
+- 📋 [Environment Variables](.env.example) - Complete environment configuration
+- 🗂️ [Podman Workspace](src/tools/podman-workspace-mcp.ts) - Sandboxed execution configuration
 
 ## License
 

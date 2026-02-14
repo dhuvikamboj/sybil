@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 .mastra
+.wwebjs_auth/
 # Build output
 dist/
 build/
