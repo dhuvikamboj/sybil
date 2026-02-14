@@ -1,7 +1,7 @@
 # Sybil - Advanced Autonomous AI Agent
 
 <p align="center">
-  <img src="assets/logo.png" alt="Sybil Logo" width="200" />
+  <img src="assets/logo.png" alt="Sybil Logo" width="400" />
 </p>
 
 An advanced autonomous AI agent built with [Mastra](https://mastra.ai).
