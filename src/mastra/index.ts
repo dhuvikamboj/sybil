@@ -12,10 +12,11 @@ import {
   routingAgent,
 } from "../agents/network.js";
 import { PinoLogger } from "@mastra/loggers";
+import PodmanSandbox from "../tools/podman-workspace.js";
+import podmanWorkspaceMCPServer from "../tools/podman-workspace-mcp.js";
 
 // Get storage and memory
 const storage = getMemoryStorage();
-
 
 export const mastra: Mastra = new Mastra({
   agents: {
@@ -26,6 +27,10 @@ export const mastra: Mastra = new Mastra({
     whatsappAgent,
     routingAgent,
   },
+  mcpServers:{
+    podmanWorkspaceMCPServer,
+  },
+ 
   workflows: {
     plannerWorkflow,
     skillBuilderWorkflow,
@@ -38,7 +43,7 @@ export const mastra: Mastra = new Mastra({
     instance: memory,
   },
   storage,
-  workspace,
+  // workspace,
 });
 
 export type MastraInstance = Mastra;

@@ -7,9 +7,21 @@ import * as browserTools from "../tools/browser-tools.js";
 import { createModel } from "../utils/model-config.js";
 import { MCPClient } from "@mastra/mcp";
 import { getSystemContext } from "../utils/system.js";
-
+import { createDirectoryTool,writeFileTool,deleteFileTool,executeBashTool,executeCommandTool,executeJavaScriptTool,installPackageTool,listFilesTool,uninstallPackageTool,getSystemInfoTool,executePythonTool, } from "../tools/podman-workspace-mcp.js";
 const systemContext = getSystemContext();
-
+const sandboxTools = {
+   createDirectory: createDirectoryTool,
+   writeFile: writeFileTool,
+   deleteFile: deleteFileTool,
+   executeBash: executeBashTool,
+   executeCommand: executeCommandTool,
+   executeJavaScript: executeJavaScriptTool,
+   installPackage: installPackageTool,
+   listFiles: listFilesTool,
+   uninstallPackage: uninstallPackageTool,
+   getSystemInfo: getSystemInfoTool,
+   executePython: executePythonTool,
+}
 /**
  * ENHANCED PLANNER AGENT
  */
@@ -129,7 +141,10 @@ PLAN READY ✓
 
 Remember: A good plan makes execution trivial. A bad plan creates confusion and delays.`,
   model: createModel(),
-  memory
+  memory,
+   tools: {
+    ...sandboxTools,
+   }
 });
 
 /**
@@ -468,6 +483,8 @@ Remember: You are a research professional. Rigor, accuracy, and intellectual hon
   model: createModel(),
   memory,
   tools: {
+    ...sandboxTools,
+
     ...(await researchMcpClient.listTools()),
   },
   maxRetries: 10
@@ -1237,6 +1254,7 @@ You are the closer. Other agents plan and research. You **deliver**.`,
   model: createModel(),
   memory,
   tools: {
+    ...sandboxTools,
     ...(await executorMcpClient.listTools()),
   },
 });
@@ -1602,6 +1620,7 @@ Remember: You are the user's WhatsApp assistant. Make messaging effortless, catc
   model: createModel(),
   memory,
   tools: {
+    ...sandboxTools,
     getWhatsAppStatus: {
       id: "get-whatsapp-status",
       description: "Get current WhatsApp connection status",
