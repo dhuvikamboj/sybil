@@ -8,6 +8,7 @@ import { createModel } from "../utils/model-config.js";
 import { MCPClient } from "@mastra/mcp";
 import { getSystemContext } from "../utils/system.js";
 import { createDirectoryTool,writeFileTool,deleteFileTool,executeBashTool,executeCommandTool,executeJavaScriptTool,installPackageTool,listFilesTool,uninstallPackageTool,getSystemInfoTool,executePythonTool, } from "../tools/podman-workspace-mcp.js";
+import { telegramTools } from "../tools/telegram-file-tools.js";
 const systemContext = getSystemContext();
 const sandboxTools = {
    createDirectory: createDirectoryTool,
@@ -139,11 +140,23 @@ PLAN READY ✓
 - If task seems too simple for planning: Say "This task doesn't require planning. Recommend direct execution by [agent]."
 - If task requires external dependencies (API keys, permissions): List them explicitly
 
-Remember: A good plan makes execution trivial. A bad plan creates confusion and delays.`,
+Remember: A good plan makes execution trivial. A bad plan creates confusion and delays.
+
+## Telegram File Sharing
+  - You can send planning documents and reports to users via Telegram
+  - Use "sendTelegramFile" to send any planning documents or reports you create
+  - Use "sendTelegramMessage" to send summaries and updates
+  - The chat context is automatically handled - just provide the file path
+
+## Tool Call Transparency
+  - All tools you use will be shown to the user in the Telegram response
+  - Users can see which tools were called and whether they succeeded or failed
+  - This transparency helps users understand your planning process`,
   model: createModel(),
   memory,
    tools: {
     ...sandboxTools,
+    ...telegramTools,
    }
 });
 
@@ -478,12 +491,27 @@ Full report available at: [file path]"
 - [ ] Did I check publication dates on sources?
 - [ ] Have I been fair to multiple perspectives on controversial topics?
 
-Remember: You are a research professional. Rigor, accuracy, and intellectual honesty are your core values. Never fake sources, never exaggerate confidence, never skip verification.`,
+Remember: You are a research professional. Rigor, accuracy, and intellectual honesty are your core values. Never fake sources, never exaggerate confidence, never skip verification.
+
+## Telegram File Sharing
+  - You can send research files, reports, and screenshots to users via Telegram
+  - Use "sendTelegramFile" to send any file (PDF reports, markdown files, images, etc.)
+  - Use "sendTelegramMessage" to send summaries or status updates
+  - Use "sendTelegramMediaGroup" to send multiple screenshots as an album
+  - Always offer to send your research reports and findings to the user
+  - Send screenshots of web pages when relevant to your research
+  - The chat context is automatically handled - just provide the file path
+
+## Tool Call Transparency
+  - All research tools you use will be shown to the user in the Telegram response
+  - Users can see which sources you accessed and tools you used
+  - This transparency helps users verify your research methodology`,
 
   model: createModel(),
   memory,
   tools: {
     ...sandboxTools,
+    ...telegramTools,
 
     ...(await researchMcpClient.listTools()),
   },
@@ -1249,12 +1277,32 @@ Before reporting task complete:
 9. **Screenshot everything** - Visual proof is invaluable for debugging.
 10. **Wait appropriately** - Too fast breaks, too slow wastes time.
 
-You are the closer. Other agents plan and research. You **deliver**.`,
+You are the closer. Other agents plan and research. You **deliver**.
+
+## Telegram File Sharing
+  - You can send files, code, screenshots, and execution results to users via Telegram
+  - Use "sendTelegramFile" to send any file (code files, documents, logs, etc.)
+  - Use "sendTelegramMessage" to send status updates and summaries
+  - Use "sendTelegramMediaGroup" to send multiple screenshots as an album
+  - Always send generated files (code, scripts, outputs) to the user
+  - Send screenshots of browser automation results when applicable
+  - The chat context is automatically handled - just provide the file path
+
+## Tool Call Transparency
+  - All tools you use will be shown to the user in the Telegram response
+  - Users can see which commands were executed and tools used
+  - This transparency helps users understand what actions were taken
+  - Use "sendTelegramMessage" to send status updates and summaries
+  - Use "sendTelegramMediaGroup" to send multiple screenshots as an album
+  - Always send generated files (code, scripts, outputs) to the user
+  - Send screenshots of browser automation results when applicable
+  - The chat context is automatically handled - just provide the file path`,
 
   model: createModel(),
   memory,
   tools: {
     ...sandboxTools,
+    ...telegramTools,
     ...(await executorMcpClient.listTools()),
   },
 });
@@ -1621,6 +1669,7 @@ Remember: You are the user's WhatsApp assistant. Make messaging effortless, catc
   memory,
   tools: {
     ...sandboxTools,
+    ...telegramTools,
     getWhatsAppStatus: {
       id: "get-whatsapp-status",
       description: "Get current WhatsApp connection status",

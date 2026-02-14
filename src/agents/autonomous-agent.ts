@@ -5,7 +5,20 @@ import { memory } from "../mastra/memory.js";
 import { getAgentProcessors } from "../processors/index.js";
 import { workspace } from "../workspace/index.js";
 import * as browserTools from "../tools/browser-tools.js";
-
+import { createDirectoryTool,writeFileTool,deleteFileTool,executeBashTool,executeCommandTool,executeJavaScriptTool,installPackageTool,listFilesTool,uninstallPackageTool,getSystemInfoTool,executePythonTool, } from "../tools/podman-workspace-mcp.js";
+const sandboxTools = {
+   createDirectory: createDirectoryTool,
+   writeFile: writeFileTool,
+   deleteFile: deleteFileTool,
+   executeBash: executeBashTool,
+   executeCommand: executeCommandTool,
+   executeJavaScript: executeJavaScriptTool,
+   installPackage: installPackageTool,
+   listFiles: listFilesTool,
+   uninstallPackage: uninstallPackageTool,
+   getSystemInfo: getSystemInfoTool,
+   executePython: executePythonTool,
+}
 // Type definitions for workflow tools
 interface WorkflowResult {
   success: boolean;
@@ -46,6 +59,7 @@ import {
   approvePendingReplyTool,
 } from "../tools/whatsapp-autoreply-tools.js";
 import { createModel, getModelConfig, getProviderDisplayName } from "../utils/model-config.js";
+import { telegramTools } from "../tools/telegram-file-tools.js";
 // NOTE: mastra is imported lazily (via dynamic import) inside workflow tool
 // execute functions to avoid circular dependency: mastra/index.ts ↔ this file
 import { allTools, toolCategories } from "../tools/tool-registry.js";
@@ -507,6 +521,21 @@ export const autonomousAgent: Agent = new Agent({
   - Execute shell commands in the sandbox (requires approval)
   - Files are stored in the workspace directory (./workspace)
   - Skills can be loaded dynamically from the skills directory
+
+## Telegram File Sharing
+  - You can send files to users via Telegram using the file sharing tools
+  - Use "sendTelegramFile" to send any file (documents, images, code, etc.)
+  - Use "sendTelegramMessage" to send additional text updates
+  - Use "sendTelegramMediaGroup" to send multiple photos/videos as an album
+  - When you create or generate files, offer to send them to the user
+  - Automatically send relevant files when they would be helpful
+  - The chat context is automatically handled - just provide the file path
+
+## Tool Call Transparency
+  - All tools you use will be shown to the user in the response
+  - Users can see which tools were called and their success status
+  - This helps users understand how you arrived at your answers
+  - Tool calls are displayed with ✅ (success) or ❌ (failed) indicators
   
   ## Model Information
 - AI Provider: ${getProviderDisplayName()}
@@ -516,13 +545,13 @@ Be helpful, thoughtful, and always strive to exceed expectations.
   `,
   model: createModel(),
   memory, // Configure memory at agent level
-  workspace, // Add workspace for file operations and skills
 
   // Add processors for enhanced message processing
   inputProcessors: getAgentProcessors().inputProcessors,
   outputProcessors: getAgentProcessors().outputProcessors,
 
   tools: {
+    ...sandboxTools,
     learnFromInteraction: learnFromInteractionTool,
     planAutonomousTask: planAutonomousTaskTool,
     selfReflect: selfReflectTool,
@@ -551,5 +580,6 @@ Be helpful, thoughtful, and always strive to exceed expectations.
     activateSkill: activateSkillTool,
     analyzeForSkillOpportunity: analyzeForSkillOpportunityTool,
     ...browserTools,
+    ...telegramTools,
   },
 });

@@ -6,6 +6,8 @@ import { logger } from "./logger.js";
 import { getModelConfig, getProviderDisplayName } from "./model-config.js";
 import { processWithNetwork } from "../agents/network.js";
 import { isAuthenticated, verifyOTP, generateOTP, storeOTP } from "./telegram-auth.js";
+import { RequestContext } from "@mastra/core/request-context";
+import { promises as fs } from "fs";
 
 // Configuration
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -17,15 +19,27 @@ if (!TELEGRAM_BOT_TOKEN) {
 // Initialize bot
 export const bot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: true });
 
+// Session mode types
+type SessionMode = "normal" | "plan" | "research" | "agent";
+
 // User session management
 interface UserSession {
   threadId: string;
   resourceId: string;
   lastActivity: Date;
   messageCount: number;
+  mode: SessionMode;
 }
 
 const userSessions = new Map<number, UserSession>();
+
+// Mode indicator emojis
+const modeEmojis: Record<SessionMode, string> = {
+  normal: "💬",
+  plan: "📋",
+  research: "🔍",
+  agent: "🤖",
+};
 
 // Helper: Get or create user session
 async function getOrCreateSession(chatId: number, userId?: number): Promise<UserSession> {
@@ -63,6 +77,7 @@ async function getOrCreateSession(chatId: number, userId?: number): Promise<User
     resourceId,
     lastActivity: new Date(),
     messageCount: 0,
+    mode: "agent",
   };
 
   userSessions.set(chatId, session);
@@ -138,16 +153,43 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
     logger.debug("TELEGRAM", `Session details`, {
       threadId: session.threadId,
       messageCount: session.messageCount,
+      mode: session.mode,
     });
 
-    // Get agent
-    const agent = mastra.getAgent("autonomousAgent");
+    // Get agent based on session mode
+    let agent;
+    const modeEmoji = modeEmojis[session.mode];
+    const agentNames: Record<SessionMode, string> = {
+      normal: "autonomousAgent",
+      plan: "plannerAgent",
+      research: "researcherAgent",
+      agent: "executorAgent",
+    };
+
+    switch (session.mode) {
+      case "plan":
+        agent = mastra.getAgent("plannerAgent");
+        break;
+      case "research":
+        agent = mastra.getAgent("researcherAgent");
+        break;
+      case "agent":
+        agent = mastra.getAgent("executorAgent");
+        break;
+      case "normal":
+      default:
+        agent = mastra.getAgent("autonomousAgent");
+        break;
+    }
 
     // Generate response with streaming
     const startTime = Date.now();
+    const agentName = agent?.id || agentNames[session.mode];
     logger.info("AGENT", `Generating response for user ${userId || chatId}`, {
       threadId: session.threadId,
       messagePrefix: text.substring(0, 50),
+      mode: session.mode,
+      agent: agentName,
     });
 
     // Add retry logic without time constraints
@@ -157,6 +199,13 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
     let toolCallCount = 0;
     let lastMessageId: number | null = null;
     let pendingEdit: Promise<void> | null = null;
+    
+    // Track tool calls for response
+    const toolCallsMade: Array<{name: string; success: boolean; error?: string}> = [];
+
+    // Create request context with Telegram chat ID for tools
+    const requestContext = new RequestContext();
+    requestContext.set("telegramChatId", chatId);
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -168,6 +217,7 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
             thread: session.threadId,
             resource: session.resourceId,
           },
+          requestContext,
           onStepFinish: ({ text, toolCalls, toolResults, finishReason, usage }: any) => {
             if (toolCalls.length > 0 || toolResults.length > 0) {
               // Log successful tool calls
@@ -183,6 +233,17 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
                   error: result.error,
                   errorCode: result.errorCode
                 }));
+
+              // Track tool calls for response
+              toolCalls.forEach((tc: any) => {
+                const toolName = tc.payload.toolName;
+                const result = toolResults.find((tr: any) => tr.toolName === toolName);
+                toolCallsMade.push({
+                  name: toolName,
+                  success: result ? !result.error : true,
+                  error: result?.error
+                });
+              });
 
               logger.info("AGENT", `Step completed`, {
                 attempt,
@@ -248,27 +309,102 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
           }
         }
 
+        // Build tool calls summary
+        let toolCallsSection = "";
+        if (toolCallsMade.length > 0) {
+          toolCallsSection = "\n\n🔧 *Tools Used:*\n";
+          toolCallsMade.forEach((tool, index) => {
+            const status = tool.success ? "✅" : "❌";
+            toolCallsSection += `${index + 1}. ${status} \`${tool.name}\`\n`;
+          });
+        }
+
         // Send final message with complete text
-        if (fullText.length > 0) {
-          const formattedResponse = formatForTelegram(fullText);
-          if (lastMessageId) {
-            await (pendingEdit || Promise.resolve());
+        if (fullText.length > 0 || toolCallsMade.length > 0) {
+          const TELEGRAM_LIMIT = 4000;
+          
+          // Combine response with tool calls
+          let finalResponse = fullText + toolCallsSection;
+          
+          if (finalResponse.length > TELEGRAM_LIMIT) {
+            // Response is too long, send as file
+            const timestamp = Date.now();
+            const filename = `response-${timestamp}.md`;
+            const tempDir = process.env.TEMP || process.env.TMPDIR || '/tmp';
+            const filePath = `${tempDir}/${filename}`;
+            
             try {
-              await bot.editMessageText(formattedResponse, {
-                chat_id: chatId,
-                message_id: lastMessageId,
-                parse_mode: "Markdown",
+              // Write response to file (including tool calls)
+              await fs.writeFile(filePath, finalResponse, 'utf-8');
+              
+              // Read file content
+              const fileContent = await fs.readFile(filePath);
+              
+              // Send as document
+              const summary = fullText.substring(0, 200) + "...\n\n[Full response attached as file]";
+              
+              if (lastMessageId) {
+                // Edit the last message with summary
+                await (pendingEdit || Promise.resolve());
+                await bot.editMessageText(
+                  `📄 Response is too long (${finalResponse.length} characters). Sending as file...`,
+                  {
+                    chat_id: chatId,
+                    message_id: lastMessageId,
+                  }
+                );
+              } else {
+                // Send initial message
+                await bot.sendMessage(
+                  chatId,
+                  `📄 Response is too long (${finalResponse.length} characters). Sending as file...`
+                );
+              }
+              
+              // Send the file
+              await bot.sendDocument(chatId, fileContent, {
+                caption: `Response (${finalResponse.length} characters)`,
+              }, {
+                filename: filename,
+                contentType: 'text/markdown',
               });
-            } catch {
-              // If editing failed, send new message
-              await bot.sendMessage(chatId, formattedResponse, {
+              
+              // Clean up temp file
+              await fs.unlink(filePath).catch(() => {});
+              
+            } catch (fileError) {
+              logger.error("TELEGRAM", "Failed to send response as file", {
+                error: fileError instanceof Error ? fileError.message : "Unknown error",
+              });
+              // Fallback: send truncated message
+              const truncatedResponse = fullText.substring(0, TELEGRAM_LIMIT - 100) + 
+                "\n\n...[Response truncated - too long to display]";
+              await bot.sendMessage(chatId, truncatedResponse, {
                 parse_mode: "Markdown",
               });
             }
           } else {
-            await bot.sendMessage(chatId, formattedResponse, {
-              parse_mode: "Markdown",
-            });
+            // Normal response, send as text
+            const formattedResponse = formatForTelegram(finalResponse);
+            if (lastMessageId) {
+              await (pendingEdit || Promise.resolve());
+              try {
+                await bot.editMessageText(formattedResponse, {
+                  chat_id: chatId,
+                  message_id: lastMessageId,
+                  parse_mode: "Markdown",
+                });
+              } catch {
+                // If editing failed, send new message
+                await bot.sendMessage(chatId, formattedResponse, {
+                  parse_mode: "Markdown",
+                });
+              }
+            } else {
+              await bot.sendMessage(chatId, formattedResponse, {
+                parse_mode: "Markdown",
+              });
+            }
           }
         }
 
@@ -297,12 +433,16 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
     logger.info("AGENT", `Response generated`, {
       userId,
       responseLength: fullText.length,
-      toolCallCount,
+      toolCallCount: toolCallsMade.length,
+      toolsUsed: toolCallsMade.map(t => t.name),
       duration: `${duration}ms`,
+      agent: agentName,
+      mode: session.mode,
     });
 
     logger.info("TELEGRAM", `Response sent to user ${chatId}`, {
       responseLength: fullText.length,
+      mode: session.mode,
     });
 
     // Learn from interaction (async, don't block response)
@@ -553,16 +693,90 @@ export async function handleCommand(msg: TelegramBot.Message): Promise<void> {
         "• 🎓 Learn new skills\n" +
         "• 🌐 Research online\n" +
         "• 📱 Send WhatsApp messages\n\n" +
-        "💬 Just start chatting or use /help for commands!"
+        "🤖 **Agent Mode** is active by default - I'm ready to execute tasks, write code, and perform actions!\n\n" +
+        "Use /help for commands and /normal to switch to chat mode."
       );
       break;
+
+    case "/plan": {
+      const planSession = await getOrCreateSession(chatId, msg.from?.id);
+      planSession.mode = "plan";
+      await bot.sendMessage(
+        chatId,
+        "📋 **Plan Mode Activated**\n\n" +
+        "All your messages will now be handled by the **Planner Agent**.\n\n" +
+        "The Planner Agent excels at:\n" +
+        "• Breaking down complex tasks into steps\n" +
+        "• Creating structured execution plans\n" +
+        "• Identifying dependencies and priorities\n" +
+        "• Estimating effort and time\n\n" +
+        "Just describe what you want to achieve!"
+      );
+      break;
+    }
+
+    case "/research": {
+      const researchSession = await getOrCreateSession(chatId, msg.from?.id);
+      researchSession.mode = "research";
+      await bot.sendMessage(
+        chatId,
+        "🔍 **Research Mode Activated**\n\n" +
+        "All your messages will now be handled by the **Research Agent**.\n\n" +
+        "The Research Agent excels at:\n" +
+        "• Finding current information and facts\n" +
+        "• Web scraping and content extraction\n" +
+        "• Multi-source verification\n" +
+        "• Comprehensive research reports\n\n" +
+        "What would you like me to research?"
+      );
+      break;
+    }
+
+    case "/agent": {
+      const agentSession = await getOrCreateSession(chatId, msg.from?.id);
+      agentSession.mode = "agent";
+      await bot.sendMessage(
+        chatId,
+        "🤖 **Agent Mode Activated** *[DEFAULT]*\n\n" +
+        "All your messages will now be handled by the **Executor Agent**.\n\n" +
+        "The Executor Agent excels at:\n" +
+        "• Writing and executing code\n" +
+        "• Browser automation\n" +
+        "• File operations\n" +
+        "• Performing actions and tasks\n\n" +
+        "What task should I execute?"
+      );
+      break;
+    }
+
+    case "/normal": {
+      const normalSession = await getOrCreateSession(chatId, msg.from?.id);
+      normalSession.mode = "normal";
+      await bot.sendMessage(
+        chatId,
+        "💬 **Normal Mode Activated**\n\n" +
+        "All your messages will now be handled by the **Autonomous Agent**.\n\n" +
+        "The Autonomous Agent can:\n" +
+        "• Handle general conversations\n" +
+        "• Learn from interactions\n" +
+        "• Plan and execute tasks\n" +
+        "• Access all available tools\n\n" +
+        "Use /agent to switch back to agent mode (default)."
+      );
+      break;
+    }
 
     case "/help":
       await bot.sendMessage(
         chatId,
         "🤖 *Sybil Commands*\n\n" +
+        "🎯 *Session Modes:*\n" +
+        "/plan - Plan mode (planner agent)\n" +
+        "/research - Research mode (research agent)\n" +
+        "/agent - Agent mode (executor agent) *[DEFAULT]*\n" +
+        "/normal - Normal mode (autonomous agent)\n\n" +
         "📝 *Planning:*\n" +
-        "/plan <goal> - Create action plan\n" +
+        "/plan - Switch to plan mode\n" +
         "/network <task> - Multi-agent task\n\n" +
         "🧠 *Learning:*\n" +
         "/create-tool <desc> - Make new tool\n" +
@@ -590,13 +804,18 @@ export async function handleCommand(msg: TelegramBot.Message): Promise<void> {
         "• /start - Start the bot\n" +
         "• /help - Show this help message\n" +
         "• /status - Check your current status and progress\n\n" +
+        "🎛️ *Session Modes:*\n" +
+        "• /agent - Agent mode: All messages go to Executor Agent *[DEFAULT]*\n" +
+        "• /plan - Plan mode: All messages go to Planner Agent\n" +
+        "• /research - Research mode: All messages go to Research Agent\n" +
+        "• /normal - Normal mode: All messages go to Autonomous Agent\n\n" +
         "🧠 *Memory & Learning:*\n" +
         "• /memory - Show what I remember about you\n" +
         "• /reflect - Trigger self-reflection and improvement\n" +
         "• I'm continuously learning from our interactions!\n\n" +
         "📋 *Planning:*\n" +
-        "• /plan <goal> - Create an autonomous plan for a goal\n" +
-        "  Example: /plan Research best practices for Node.js\n\n" +
+        "• /plan - Switch to plan mode for structured planning\n" +
+        "• /network <task> - Multi-agent task\n\n" +
         "🤖 *AI Providers:*\n" +
         "• /models - List all supported AI providers\n" +
         "• /model <provider> - Check/switch AI provider\n" +
@@ -612,7 +831,8 @@ export async function handleCommand(msg: TelegramBot.Message): Promise<void> {
         "• /workspace-read <filename> - Read a file\n" +
         "• /workspace-write <filename> <content> - Write to a file\n" +
         "• /workspace-exec <command> - Execute a command\n" +
-        "• /workspace-clear - Clear all files\n\n" +
+        "• /workspace-clear - Clear all files\n" +
+        "• /send <filename> - Send a file from workspace\n\n" +
         "💬 *WhatsApp:*\n" +
         "• /whatsapp - Check WhatsApp connection status\n" +
         "• /whatsapp-send <number> <message> - Send a message\n" +
@@ -629,6 +849,7 @@ export async function handleCommand(msg: TelegramBot.Message): Promise<void> {
         "🔍 *System:*\n" +
         "• /diagnostics - Run system health check\n\n" +
         "⚡ *Features:*\n" +
+        "✅ Session modes (plan, research, agent, normal)\n" +
         "✅ Streaming responses\n" +
         "✅ 17+ AI providers (OpenAI, Anthropic, Google, etc.)\n" +
         "✅ Dynamic tool generation\n" +
@@ -642,18 +863,28 @@ export async function handleCommand(msg: TelegramBot.Message): Promise<void> {
       );
       break;
 
-    case "/status":
+    case "/status": {
       const session = await getOrCreateSession(chatId, msg.from?.id);
+      const modeEmoji = modeEmojis[session.mode];
+      const modeNames: Record<SessionMode, string> = {
+        normal: "Normal (Autonomous Agent)",
+        plan: "Plan (Planner Agent)",
+        research: "Research (Research Agent)",
+        agent: "Agent (Executor Agent)",
+      };
       await bot.sendMessage(
         chatId,
         `📊 *Your Status:*\n\n` +
         `• Messages exchanged: ${session.messageCount}\n` +
         `• Last activity: ${session.lastActivity.toLocaleString()}\n` +
-        `• Session ID: ${session.threadId}\n\n` +
+        `• Session ID: ${session.threadId}\n` +
+        `• Current mode: ${modeEmoji} ${modeNames[session.mode]}\n\n` +
+        `Use /plan, /research, /agent, or /normal to switch modes.\n\n` +
         `I'm continuously learning from our interactions to serve you better!`,
         { parse_mode: "Markdown" }
       );
       break;
+    }
 
     case "/memory":
       await handleMemoryCommand(chatId, msg.from?.id);
@@ -800,6 +1031,20 @@ export async function handleCommand(msg: TelegramBot.Message): Promise<void> {
     case "/workspace-clear":
       await handleWorkspaceCommand(chatId, "clear", msg.from?.id);
       await bot.sendMessage(chatId, "✅ Workspace cleared successfully");
+      break;
+
+    case "/send":
+      const sendFilename = text.replace("/send", "").trim();
+      if (!sendFilename) {
+        await bot.sendMessage(
+          chatId,
+          "Usage: /send <filename>\n" +
+          "Example: /send report.pdf\n\n" +
+          "Sends a file from the workspace to this chat."
+        );
+      } else {
+        await handleSendFileCommand(chatId, sendFilename, msg.from?.id);
+      }
       break;
 
     case "/backup":
@@ -970,6 +1215,98 @@ async function handleReflectCommand(chatId: number, userId?: number): Promise<vo
   } catch (error) {
     console.error("Error during reflection:", error);
     await bot.sendMessage(chatId, "Sorry, reflection failed. Please try again later.");
+  }
+}
+
+// Handle send file command
+async function handleSendFileCommand(chatId: number, filename: string, userId?: number): Promise<void> {
+  try {
+    const path = await import("path");
+    const workspaceDir = process.env.WORKSPACE_DIR || "./workspace";
+    const filePath = path.join(workspaceDir, filename);
+    
+    // Check if file exists
+    try {
+      await fs.access(filePath);
+    } catch {
+      await bot.sendMessage(
+        chatId,
+        `❌ File not found: "${filename}"\n\nUse /workspace-list to see available files.`
+      );
+      return;
+    }
+    
+    // Read file stats
+    const stats = await fs.stat(filePath);
+    if (!stats.isFile()) {
+      await bot.sendMessage(chatId, `❌ "${filename}" is not a file.`);
+      return;
+    }
+    
+    // Check file size (Telegram limit is 20MB for bots)
+    const maxSize = 20 * 1024 * 1024; // 20MB
+    if (stats.size > maxSize) {
+      await bot.sendMessage(
+        chatId,
+        `❌ File "${filename}" is too large (${(stats.size / 1024 / 1024).toFixed(2)} MB).\nMaximum size is 20 MB.`
+      );
+      return;
+    }
+    
+    // Send processing message
+    const processingMsg = await bot.sendMessage(chatId, `📤 Sending "${filename}"...`);
+    
+    // Read and send file
+    const fileContent = await fs.readFile(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    
+    // Determine file type
+    const isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(ext);
+    const isVideo = ['.mp4', '.avi', '.mov', '.mkv', '.webm'].includes(ext);
+    const isAudio = ['.mp3', '.ogg', '.wav', '.m4a', '.flac'].includes(ext);
+    
+    // File options
+    const fileOptions = {
+      filename: path.basename(filePath),
+      contentType: undefined as string | undefined,
+    };
+    
+    // Send based on file type
+    if (isImage) {
+      fileOptions.contentType = `image/${ext.replace('.', '')}`;
+      await bot.sendPhoto(chatId, fileContent, {
+        caption: `📎 ${filename}`,
+      }, fileOptions);
+    } else if (isVideo) {
+      fileOptions.contentType = `video/${ext.replace('.', '')}`;
+      await bot.sendVideo(chatId, fileContent, {
+        caption: `📎 ${filename}`,
+      }, fileOptions);
+    } else if (isAudio) {
+      fileOptions.contentType = `audio/${ext.replace('.', '')}`;
+      await bot.sendAudio(chatId, fileContent, {
+        caption: `📎 ${filename}`,
+      }, fileOptions);
+    } else {
+      // Send as document
+      await bot.sendDocument(chatId, fileContent, {
+        caption: `📎 ${filename}`,
+      }, fileOptions);
+    }
+    
+    // Delete processing message
+    try {
+      await bot.deleteMessage(chatId, processingMsg.message_id);
+    } catch {
+      // Ignore deletion errors
+    }
+    
+  } catch (error) {
+    console.error("Error sending file:", error);
+    await bot.sendMessage(
+      chatId,
+      `❌ Failed to send file "${filename}".\nError: ${error instanceof Error ? error.message : "Unknown error"}`
+    );
   }
 }
 

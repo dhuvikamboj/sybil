@@ -1,6 +1,6 @@
 # Dependencies
 node_modules/
-
+.mastra
 # Build output
 dist/
 build/
