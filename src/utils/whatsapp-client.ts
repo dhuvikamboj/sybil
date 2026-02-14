@@ -11,7 +11,8 @@ const __dirname = path.dirname(__filename);
 // Use absolute paths for persistence
 const PROJECT_ROOT = path.resolve(__dirname, "../..");
 const SYBIL_DIR = path.join(process.env.HOME || process.env.USERPROFILE || PROJECT_ROOT, ".sybil");
-const WHATSAPP_SESSION_DIR = path.join(SYBIL_DIR, "whatsapp-session");
+// const WHATSAPP_SESSION_DIR = path.join(SYBIL_DIR, "whatsapp-session");
+const WHATSAPP_SESSION_DIR = './.wwebjs_auth'; // Use a relative path for session data to ensure it works across different environments without permission issues
 const SETTINGS_FILE = path.join(SYBIL_DIR, "settings.json");
 
 // Ensure directories exist
@@ -23,6 +24,7 @@ function ensureDirectories(): void {
     }
     if (!fs.existsSync(WHATSAPP_SESSION_DIR)) {
       fs.mkdirSync(WHATSAPP_SESSION_DIR, { recursive: true });
+      logger.info("WHATSAPP", `Created WhatsApp session directory: ${WHATSAPP_SESSION_DIR}`);
     }
   } catch (error) {
     logger.error("WHATSAPP", `Failed to create directories: ${error}`);
@@ -107,14 +109,7 @@ class WhatsAppClientManager extends EventEmitter {
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",
-          "--disable-dev-shm-usage",
-          "--disable-accelerated-2d-canvas",
-          "--no-first-run",
-          "--no-zygote",
-          "--single-process",
-          "--disable-gpu",
-          "--disable-web-security",
-          "--disable-features=IsolateOrigins,site-per-process",
+       
         ],
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       },
@@ -260,9 +255,20 @@ class WhatsAppClientManager extends EventEmitter {
     });
 
     try {
-      // Format phone number (remove non-numeric and add @c.us)
-      const formattedNumber = to.replace(/\D/g, "");
-      const chatId = formattedNumber.includes("@") ? formattedNumber : `${formattedNumber}@c.us`;
+      // Handle different WhatsApp ID formats:
+      // - Phone number: "1234567890" → "1234567890@c.us"
+      // - Chat ID: "1234567890@c.us" → used as-is
+      // - Group ID: "123456789@g.us" → used as-is
+      // - LID (Local Identifier): "187743636676218910@lid" → used as-is
+      let chatId: string;
+      if (to.includes("@")) {
+        // Already has @ prefix - use as-is (handles @c.us, @g.us, @lid, etc.)
+        chatId = to;
+      } else {
+        // Pure phone number - add @c.us suffix
+        const formattedNumber = to.replace(/\D/g, "");
+        chatId = `${formattedNumber}@c.us`;
+      }
 
       const sent = await this.client.sendMessage(chatId, message);
 
@@ -358,24 +364,36 @@ class WhatsAppClientManager extends EventEmitter {
   }
 
   /**
-   * Get contact info
+   * Get contact info by phone number or LID
+   * Accepts: phone number (1234567890), chat ID (1234567890@c.us), or LID (xxxxxxxxxx@lid)
    */
-  async getContact(number: string): Promise<{ success: boolean; contact?: { number: string; name?: string; isBusiness: boolean }; error?: string }> {
+  async getContact(identifier: string): Promise<{ success: boolean; contact?: { id: string; number: string; name?: string; isBusiness: boolean; lid?: string }; error?: string }> {
     if (!this.isReady || !this.client) {
       return { success: false, error: "WhatsApp client not ready" };
     }
 
     try {
-      const formattedNumber = number.replace(/\D/g, "");
-      const contactId = `${formattedNumber}@c.us`;
+      let contactId: string;
+      
+      if (identifier.includes("@")) {
+        // Already has @ prefix - use as-is (handles @c.us, @lid, etc.)
+        contactId = identifier;
+      } else {
+        // Pure phone number - add @c.us suffix
+        const formattedNumber = identifier.replace(/\D/g, "");
+        contactId = `${formattedNumber}@c.us`;
+      }
+      
       const contact = await this.client.getContactById(contactId);
 
       return {
         success: true,
         contact: {
-          number: formattedNumber,
+          id: contact.id._serialized,
+          number: contact.number || contact.id.user?.replace("@c.us", "") || contact.id.user?.replace("@lid", "") || "",
           name: contact.name || contact.pushname,
-          isBusiness: contact.isBusiness,
+          isBusiness: contact.isBusiness || false,
+          lid: contact.id._serialized?.includes("@lid") ? contact.id._serialized : undefined,
         },
       };
     } catch (error) {
@@ -404,6 +422,105 @@ class WhatsAppClientManager extends EventEmitter {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Get LID (Local Identifier) and phone number for a contact
+   * This is useful for mapping between LID (@lid) and phone number (@c.us) formats
+   */
+  async getContactLidAndPhone(contactId: string): Promise<{ success: boolean; lid?: string; phoneNumber?: string; error?: string }> {
+    if (!this.isReady || !this.client) {
+      return { success: false, error: "WhatsApp client not ready" };
+    }
+
+    try {
+      const contact = await this.client.getContactById(contactId);
+      
+      // Use the built-in method if available, otherwise try to extract from contact
+      let lid: string | undefined;
+      let phoneNumber: string | undefined;
+
+      if (typeof (this.client as any).getContactLidAndPhone === "function") {
+        const result = await (this.client as any).getContactLidAndPhone(contactId);
+        lid = result.lid;
+        phoneNumber = result.phoneNumber;
+      } else {
+        // Fallback: extract from contact object
+        phoneNumber = contact.number || contact.id.user;
+        // LID is typically in the format "xxxxxxxxxx@lid"
+        if (contact.id._serialized && contact.id._serialized.includes("@lid")) {
+          lid = contact.id._serialized;
+        }
+      }
+
+      return {
+        success: true,
+        lid,
+        phoneNumber,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Get contact by LID (Local Identifier)
+   * LID format: xxxxxxxxxx@lid
+   */
+  async getContactByLid(lid: string): Promise<{ success: boolean; contact?: { lid: string; number: string; name?: string; isBusiness: boolean }; error?: string }> {
+    if (!this.isReady || !this.client) {
+      return { success: false, error: "WhatsApp client not ready" };
+    }
+
+    try {
+      // Ensure the LID has @lid suffix
+      const formattedLid = lid.includes("@lid") ? lid : `${lid}@lid`;
+      const contact = await this.client.getContactById(formattedLid);
+
+      return {
+        success: true,
+        contact: {
+          lid: contact.id._serialized,
+          number: contact.number || contact.id.user?.replace("@c.us", "") || "",
+          name: contact.name || contact.pushname,
+          isBusiness: contact.isBusiness || false,
+        },
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      return { success: false, error: errorMessage };
+    }
+  }
+
+  /**
+   * Get all contacts
+   */
+  async getAllContacts(): Promise<{ success: boolean; contacts?: Array<{ id: string; number: string; name?: string; isBusiness: boolean; isMyContact: boolean; lid?: string }>; totalContacts: number; error?: string }> {
+    if (!this.isReady || !this.client) {
+      return { success: false, totalContacts: 0, error: "WhatsApp client not ready" };
+    }
+
+    try {
+      const contacts = await this.client.getContacts();
+      const contactList = contacts.map((contact: any) => ({
+        id: contact.id._serialized,
+        number: contact.number || contact.id.user?.replace("@c.us", "") || contact.id.user?.replace("@lid", "") || "",
+        name: contact.name || contact.pushname || undefined,
+        isBusiness: contact.isBusiness || false,
+        isMyContact: contact.isMyContact || false,
+        lid: contact.id._serialized?.includes("@lid") ? contact.id._serialized : undefined,
+      }));
+
+      return {
+        success: true,
+        contacts: contactList,
+        totalContacts: contactList.length,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      return { success: false, totalContacts: 0, error: errorMessage };
     }
   }
 

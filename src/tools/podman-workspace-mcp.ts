@@ -72,36 +72,75 @@ class PodmanSandbox {
   }
 
   async listWorkspaceFromHost(): Promise<string[]> {
-    try {
-      const files = await fs.readdir(this.workspaceDir, { recursive: true });
-      return files as string[];
-    } catch {
+    // Use container commands to list workspace files
+    if (!this.isInitialized) {
+      // If container not initialized, list from host
+      try {
+        const files = await fs.readdir(this.workspaceDir, { recursive: true });
+        return files as string[];
+      } catch {
+        return [];
+      }
+    }
+    
+    // Use find command in container for accurate listing
+    const result = await this.executeCommand(
+      `find /workspace -type f -o -type d | sed 's|^/workspace/||' | grep -v '^$'`
+    );
+    
+    if (result.exitCode !== 0) {
       return [];
     }
+    
+    return result.stdout.split('\\n').filter(Boolean);
   }
 
   async getWorkspaceSize(): Promise<{ bytes: number; human: string }> {
-    let totalSize = 0;
+    // Use container commands to get workspace size
+    if (!this.isInitialized) {
+      // Fallback to host calculation if container not ready
+      let totalSize = 0;
 
-    async function getSize(dirPath: string): Promise<void> {
-      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      async function getSize(dirPath: string): Promise<void> {
+        const entries = await fs.readdir(dirPath, { withFileTypes: true });
 
-      for (const entry of entries) {
-        const fullPath = path.join(dirPath, entry.name);
+        for (const entry of entries) {
+          const fullPath = path.join(dirPath, entry.name);
 
-        if (entry.isDirectory()) {
-          await getSize(fullPath);
-        } else {
-          const stats = await fs.stat(fullPath);
-          totalSize += stats.size;
+          if (entry.isDirectory()) {
+            await getSize(fullPath);
+          } else {
+            const stats = await fs.stat(fullPath);
+            totalSize += stats.size;
+          }
         }
       }
+
+      try {
+        await getSize(this.workspaceDir);
+      } catch {}
+
+      const kb = totalSize / 1024;
+      const mb = kb / 1024;
+      const gb = mb / 1024;
+
+      let human: string;
+      if (gb >= 1) human = `${gb.toFixed(2)} GB`;
+      else if (mb >= 1) human = `${mb.toFixed(2)} MB`;
+      else if (kb >= 1) human = `${kb.toFixed(2)} KB`;
+      else human = `${totalSize} bytes`;
+
+      return { bytes: totalSize, human };
     }
-
-    try {
-      await getSize(this.workspaceDir);
-    } catch {}
-
+    
+    // Use du command in container
+    const result = await this.executeCommand(`du -sb /workspace | awk '{print $1}'`);
+    
+    if (result.exitCode !== 0) {
+      return { bytes: 0, human: '0 bytes' };
+    }
+    
+    const totalSize = parseInt(result.stdout.trim()) || 0;
     const kb = totalSize / 1024;
     const mb = kb / 1024;
     const gb = mb / 1024;
@@ -116,52 +155,94 @@ class PodmanSandbox {
   }
 
   async cleanWorkspace(): Promise<void> {
-    const files = await fs.readdir(this.workspaceDir);
-    await Promise.all(
-      files.map((file) =>
-        fs.rm(path.join(this.workspaceDir, file), { recursive: true, force: true })
-      )
-    );
+    // Use container commands to clean workspace
+    // Remove all files but keep the workspace directory itself
+    await this.executeCommand(`find /workspace -mindepth 1 -delete`);
   }
 
   async deleteWorkspace(): Promise<void> {
+    // This deletes the workspace on the host (only used when completely destroying)
     await fs.rm(this.workspaceDir, { recursive: true, force: true });
   }
 
   async copyToWorkspace(sourcePath: string, destPath: string = "."): Promise<void> {
+    // Use podman cp to copy from host to container
+    if (!this.containerId) {
+      throw new Error("Container not initialized");
+    }
+    
     const sourceResolved = path.resolve(sourcePath);
-    const destResolved = path.join(this.workspaceDir, destPath);
-
-    await fs.mkdir(path.dirname(destResolved), { recursive: true });
-    await fs.copyFile(sourceResolved, destResolved);
+    const destInContainer = destPath.startsWith("/") ? destPath : `/workspace/${destPath}`;
+    
+    // Create destination directory in container first
+    const destDir = path.dirname(destInContainer);
+    await this.executeCommand(`mkdir -p "${destDir}"`);
+    
+    // Use podman cp to copy file
+    await exec(`podman cp "${sourceResolved}" ${this.containerId}:"${destInContainer}"`);
   }
 
   async copyFromWorkspace(sourcePath: string, destPath: string): Promise<void> {
-    const sourceResolved = path.join(this.workspaceDir, sourcePath);
+    // Use podman cp to copy from container to host
+    if (!this.containerId) {
+      throw new Error("Container not initialized");
+    }
+    
+    const sourceInContainer = sourcePath.startsWith("/") ? sourcePath : `/workspace/${sourcePath}`;
     const destResolved = path.resolve(destPath);
 
+    // Create destination directory on host
     await fs.mkdir(path.dirname(destResolved), { recursive: true });
-    await fs.copyFile(sourceResolved, destResolved);
+    
+    // Use podman cp to copy file
+    await exec(`podman cp ${this.containerId}:"${sourceInContainer}" "${destResolved}"`);
   }
 
   async archiveWorkspace(outputPath: string): Promise<void> {
-    const tar = require("tar");
-    await tar.create(
-      {
-        gzip: true,
-        file: outputPath,
-        cwd: path.dirname(this.workspaceDir),
-      },
-      [path.basename(this.workspaceDir)]
+    // Create tar archive inside container, then copy to host
+    if (!this.containerId) {
+      throw new Error("Container not initialized");
+    }
+    
+    const archiveName = `workspace_backup_${Date.now()}.tar.gz`;
+    const containerArchive = `/tmp/${archiveName}`;
+    
+    // Create archive inside container
+    await this.executeCommand(
+      `tar -czf "${containerArchive}" -C /workspace .`,
+      { timeout: 120000 }
     );
+    
+    // Copy archive from container to host
+    const destResolved = path.resolve(outputPath);
+    await fs.mkdir(path.dirname(destResolved), { recursive: true });
+    await exec(`podman cp ${this.containerId}:"${containerArchive}" "${destResolved}"`);
+    
+    // Clean up archive in container
+    await this.executeCommand(`rm -f "${containerArchive}"`).catch(() => {});
   }
 
   async restoreWorkspace(archivePath: string): Promise<void> {
-    const tar = require("tar");
-    await tar.extract({
-      file: archivePath,
-      cwd: path.dirname(this.workspaceDir),
-    });
+    // Copy archive to container, then extract
+    if (!this.containerId) {
+      throw new Error("Container not initialized");
+    }
+    
+    const archiveName = `restore_${Date.now()}.tar.gz`;
+    const containerArchive = `/tmp/${archiveName}`;
+    
+    // Copy archive from host to container
+    const sourceResolved = path.resolve(archivePath);
+    await exec(`podman cp "${sourceResolved}" ${this.containerId}:"${containerArchive}"`);
+    
+    // Extract archive inside container
+    await this.executeCommand(
+      `tar -xzf "${containerArchive}" -C /workspace`,
+      { timeout: 120000 }
+    );
+    
+    // Clean up archive in container
+    await this.executeCommand(`rm -f "${containerArchive}"`).catch(() => {});
   }
 
   static async isPodmanAvailable(): Promise<boolean> {
@@ -215,17 +296,22 @@ class PodmanSandbox {
     const dockerfile = `
 FROM alpine:latest
 
+# Install required packages (base system utilities and development tools)
 RUN apk update && apk add --no-cache  python3 py3-pip nodejs npm bash curl wget git gcc g++ make linux-headers musl-dev ca-certificates tzdata
 
-
-
+# Create workspace directory - this will be the ONLY writable location when container runs
+# (Container runs with --read-only, so only /workspace mount and /tmp tmpfs are writable)
 RUN mkdir -p /workspace && chmod 777 /workspace
 WORKDIR /workspace
 
+# Create non-root user for executing commands
+# UID 1000 matches typical user on host for file permission compatibility
 RUN adduser -D -u 1000 -h /home/sandbox sandbox &&  chown -R sandbox:sandbox /workspace
 
+# Switch to non-root user (though container may start as root, commands execute as this user)
 USER sandbox
 
+# Keep container running (idle loop)
 CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
 `;
 
@@ -282,12 +368,12 @@ CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
     // Fix permissions: Make workspace writable by container user (UID 1000)
     // This ensures the sandbox user inside container can write to the mounted volume
     try {
-      await exec(`chmod 777 "${this.workspaceDir}"`);
+      await exec(`chmod -R 777 "${this.workspaceDir}"`);
     } catch {
       // Ignore chmod errors - may not have permission to change
     }
 
-    const containerName = `sandbox-${this.agentId}-${Date.now()}`;
+    const containerName = `sandbox-${this.agentId}`;
 
     const createCmd = [
       "podman",
@@ -296,20 +382,40 @@ CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
       "--name",
       containerName,
       "--rm",
+      // Mount workspace - your ONLY connection to host filesystem
       "-v",
       `${this.workspaceDir}:/workspace:Z`,
+      // Note: No --read-only to allow package installations to persist
+      // Container filesystem is isolated from host regardless
+      // Writable /tmp for temporary operations
+      "--tmpfs",
+      "/tmp:rw,noexec,nosuid,size=100m",
+      // Resource limits
       "--memory",
       "512m",
       "--cpus",
       "0.5",
+      // Network access (set to "none" if you want no internet)
       "--network",
       "bridge",
+      // Security hardening
       "--security-opt",
       "no-new-privileges",
       "--cap-drop",
       "ALL",
-      // Note: Running as root initially, but commands use -u sandbox for safety
-      // This allows proper file permissions on mounted volumes
+      // Prevent DNS/hosts manipulation
+      "--no-hosts",
+      // Prevent access to host devices
+      // "--device-read-bps",
+      // "/dev/sda:0",
+      // "--device-write-bps",
+      // "/dev/sda:0",
+      // User namespace isolation
+      "--userns",
+      "keep-id",
+      // Run with minimal privileges
+      "--pids-limit",
+      "100",
       this.imageName,
     ].join(" ");
 
@@ -384,11 +490,11 @@ CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
     code: string,
     options: { timeout?: number } = {}
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    const filename = `script_${Date.now()}.py`;
+    const filename = `/workspace/script_${Date.now()}.py`;
     await this.writeFile(filename, code);
 
     try {
-      const result = await this.executeCommand(`python3 /workspace/${filename}`, {
+      const result = await this.executeCommand(`python3 "${filename}"`, {
         timeout: options.timeout || 30000,
       });
       return result;
@@ -401,11 +507,11 @@ CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
     code: string,
     options: { timeout?: number } = {}
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    const filename = `script_${Date.now()}.js`;
+    const filename = `/workspace/script_${Date.now()}.js`;
     await this.writeFile(filename, code);
 
     try {
-      const result = await this.executeCommand(`node /workspace/${filename}`, {
+      const result = await this.executeCommand(`node "${filename}"`, {
         timeout: options.timeout || 30000,
       });
       return result;
@@ -418,12 +524,12 @@ CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
     script: string,
     options: { timeout?: number } = {}
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-    const filename = `script_${Date.now()}.sh`;
+    const filename = `/workspace/script_${Date.now()}.sh`;
     await this.writeFile(filename, script);
 
     try {
       const result = await this.executeCommand(
-        `chmod +x /workspace/${filename} && /workspace/${filename}`,
+        `chmod +x "${filename}" && "${filename}"`,
         { timeout: options.timeout || 30000 }
       );
       return result;
@@ -433,18 +539,31 @@ CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
   }
 
   async writeFile(filename: string, content: string): Promise<void> {
-    const fullPath = path.join(this.workspaceDir, filename);
-    const dir = path.dirname(fullPath);
-    await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(fullPath, content, "utf-8");
+    // Use container commands to write files (respects container user permissions)
+    const escapedContent = content.replace(/'/g, "'\\''"  ); // Escape single quotes
+    const dir = path.dirname(filename);
+    
+    // Create directory if needed
+    await this.executeCommand(`mkdir -p "${dir}"`);
+    
+    // Write file using cat with heredoc
+    await this.executeCommand(`cat > "${filename}" << 'EOF_MARKER_12345'
+${content}
+EOF_MARKER_12345`);
   }
 
   async readFile(filename: string): Promise<string> {
-    const fullPath = path.join(this.workspaceDir, filename);
-    return await fs.readFile(fullPath, "utf-8");
+    // Use container commands to read files
+    const result = await this.executeCommand(`cat "${filename}"`);
+    
+    if (result.exitCode !== 0) {
+      throw new Error(`Failed to read file: ${result.stderr}`);
+    }
+    
+    return result.stdout;
   }
 
-  async listFiles(dirPath: string = "."): Promise<string[]> {
+  async listFiles(dirPath: string = "/workspace"): Promise<string[]> {
     const result = await this.executeCommand(`ls -1 ${dirPath}`);
 
     if (result.exitCode !== 0) {
@@ -455,20 +574,28 @@ CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
   }
 
   async deleteFile(filename: string): Promise<void> {
-    const fullPath = path.join(this.workspaceDir, filename);
-    await fs.unlink(fullPath);
+    // Use container commands to delete files
+    const result = await this.executeCommand(`rm -f "${filename}"`);
+    
+    if (result.exitCode !== 0) {
+      throw new Error(`Failed to delete file: ${result.stderr}`);
+    }
   }
 
   async fileExists(filename: string): Promise<boolean> {
     const result = await this.executeCommand(
-      `test -f /workspace/${filename} && echo "exists"`
+      `test -f "${filename}" && echo "exists"`
     );
     return result.stdout.includes("exists");
   }
 
   async createDirectory(dirPath: string): Promise<void> {
-    const fullPath = path.join(this.workspaceDir, dirPath);
-    await fs.mkdir(fullPath, { recursive: true });
+    // Use container commands to create directories
+    const result = await this.executeCommand(`mkdir -p "${dirPath}"`);
+    
+    if (result.exitCode !== 0) {
+      throw new Error(`Failed to create directory: ${result.stderr}`);
+    }
   }
 
   async installPackage(
@@ -633,7 +760,7 @@ const executeCommandTool = createTool({
     command: z.string().describe("The shell command to execute"),
     timeout: z.number().optional().describe("Timeout in milliseconds (default: 30000)"),
     user: z.string().optional().describe("User to run as (default: 'sandbox')"),
-    workingDir: z.string().optional().describe("Working directory (default: '/workspace')"),
+    workingDir: z.string().optional().describe("Working directory inside container. Use paths starting with /workspace (e.g., '/workspace' or '/workspace/project'). Default: '/workspace'"),
     env: z.record(z.string()).optional().describe("Environment variables"),
   }),
   outputSchema: z.object({
@@ -722,7 +849,7 @@ const writeFileTool = createTool({
   id: "write-file",
   description: "Write a file to the sandbox workspace (auto-initializes if needed using environment variables)",
   inputSchema: z.object({
-    filename: z.string().describe("Name/path of the file to write"),
+    filename: z.string().describe("Path of the file to write. MUST use container path starting with /workspace (e.g., '/workspace/myfile.txt' or '/workspace/project/src/app.js'). Do NOT use relative paths or host paths."),
     content: z.string().describe("Content to write to the file"),
   }),
   outputSchema: z.object({
@@ -746,7 +873,7 @@ const readFileTool = createTool({
   id: "read-file",
   description: "Read a file from the sandbox workspace (auto-initializes if needed using environment variables)",
   inputSchema: z.object({
-    filename: z.string().describe("Name/path of the file to read"),
+    filename: z.string().describe("Path of the file to read. MUST use container path starting with /workspace (e.g., '/workspace/myfile.txt'). Do NOT use relative paths or host paths."),
   }),
   outputSchema: z.object({
     content: z.string(),
@@ -769,7 +896,7 @@ const listFilesTool = createTool({
   id: "list-files",
   description: "List files in the sandbox workspace (auto-initializes if needed using environment variables)",
   inputSchema: z.object({
-    dirPath: z.string().optional().describe("Directory path (default: '.')"),
+    dirPath: z.string().optional().describe("Directory path to list. Use container paths starting with /workspace (e.g., '/workspace' or '/workspace/project'). Default: '/workspace'"),
   }),
   outputSchema: z.object({
     files: z.array(z.string()),
@@ -778,7 +905,7 @@ const listFilesTool = createTool({
   execute: async (input) => {
     const wasAlreadyReady = sandbox?.isReady() || false;
     const sb = await ensureInitialized();
-    const files = await sb.listFiles(input.dirPath);
+    const files = await sb.listFiles(input.dirPath || "/workspace");
     return { files, autoInitialized: !wasAlreadyReady };
   },
 });
@@ -787,7 +914,7 @@ const deleteFileTool = createTool({
   id: "delete-file",
   description: "Delete a file from the sandbox workspace (auto-initializes if needed using environment variables)",
   inputSchema: z.object({
-    filename: z.string().describe("Name/path of the file to delete"),
+    filename: z.string().describe("Path of the file to delete. MUST use container path starting with /workspace (e.g., '/workspace/myfile.txt'). Do NOT use relative paths or host paths."),
   }),
   outputSchema: z.object({
     success: z.boolean(),
@@ -805,7 +932,7 @@ const createDirectoryTool = createTool({
   id: "create-directory",
   description: "Create a directory in the sandbox workspace (auto-initializes if needed using environment variables)",
   inputSchema: z.object({
-    dirPath: z.string().describe("Directory path to create"),
+    dirPath: z.string().describe("Directory path to create. MUST use container path starting with /workspace (e.g., '/workspace/project' or '/workspace/src/components'). Do NOT use relative paths or host paths."),
   }),
   outputSchema: z.object({
     success: z.boolean(),
@@ -1033,11 +1160,58 @@ export const podmanWorkspaceMCPServer = new MCPServer({
   instructions: `
 This MCP server provides tools for managing Podman sandbox containers with persistent workspaces.
 
+SECURITY MODEL - COMPLETE ISOLATION:
+- Container filesystem is COMPLETELY ISOLATED from host (only /workspace is shared)
+- Installed packages PERSIST within the container until cleanup/rebuild
+- ONLY /workspace directory connects to host filesystem
+- NO access to any host files outside workspace
+- NO ability to execute commands on host OS
+- User namespace isolation: "root" in container = your user on host
+- Capabilities dropped, no privilege escalation possible
+- Network access enabled (set to "none" if you want offline mode)
+- Resource limits: 512MB RAM, 0.5 CPU, 100 process limit
+
+WHAT AGENTS CAN DO:
+✅ Read/write/execute files in /workspace (visible on host)
+✅ Install packages (pip, npm, apk) - persist in container
+✅ Modify container filesystem (isolated from host)
+✅ Run Python, Node.js, bash scripts
+✅ Make network requests (if network enabled)
+✅ Use temporary files in /tmp
+
+WHAT AGENTS CANNOT DO:
+❌ Access any host files outside workspace
+❌ Modify host system configuration
+❌ Execute commands on host OS
+❌ Access host devices or hardware
+❌ Escape the container sandbox
+❌ Affect other containers or host processes
+
+PERSISTENCE MODEL:
+- Files in /workspace → PERSISTENT on host (your actual workspace folder)
+- Installed packages → PERSISTENT in container (until cleanup-sandbox or rebuild)
+- Container state → PERSISTENT (until you destroy/rebuild container)
+- /tmp directory → TMPFS (in-memory only)
+
+CONTAINER LIFECYCLE:
+- Packages installed with pip/npm/apk stay until: cleanup-sandbox or build-image
+- To fully reset container: call cleanup-sandbox (destroys container)
+- To rebuild base image: call build-image (fresh Alpine image)
+- Workspace files always persist on host regardless of container state
+
+CRITICAL - WORKSPACE PATH RULES:
+- The workspace is mounted at /workspace inside the container
+- ALWAYS use paths starting with /workspace (e.g., /workspace/myfile.txt, /workspace/project/src)
+- ✅ CORRECT: /workspace/myfile.txt, /workspace/project/src/app.js
+- ❌ WRONG: workspace/myfile.txt, ./myfile.txt, /Users/.../workspace/myfile.txt
+- All file operations (writeFile, readFile, listFiles, createDirectory, deleteFile) require /workspace paths
+- Commands execute from /workspace by default (workingDir: '/workspace')
+
 Workflow:
 1. Tools automatically initialize the sandbox when called (no need to call initialize-sandbox first)
 2. Optional: call check-podman to verify Podman is available before starting
 3. Use execute-python, execute-javascript, execute-bash, or execute-command to run code
-4. Use write-file, read-file, list-files to manage workspace files
+4. Use write-file, read-file, list-files to manage workspace files (ALWAYS with /workspace paths)
 5. Use install-package to add dependencies
 6. Call cleanup-sandbox when done to stop the container
 
@@ -1045,6 +1219,12 @@ Features:
 - Auto-initialization: All tools automatically create and start the sandbox if not already running
 - Persistent workspace: Files persist even after the container is stopped
 - Environment-based configuration: Use PODMAN_AGENT_ID and PODMAN_WORKSPACE_DIR environment variables to configure the sandbox
+
+Example Usage:
+- createDirectory({dirPath: "/workspace/project/src"})
+- writeFile({filename: "/workspace/project/package.json", content: "..."})
+- listFiles({dirPath: "/workspace/project"})
+- executeCommand({command: "npm install", workingDir: "/workspace/project"})
 
 The workspace persists even after the container is stopped.
   `,

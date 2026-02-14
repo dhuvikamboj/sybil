@@ -17,6 +17,7 @@ import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { fileURLToPath } from "url";
 import { mastra } from "./mastra/index.js";
+import { whatsappManager } from "./utils/whatsapp-client.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
@@ -30,6 +31,7 @@ const c = {
   info: chalk.blue,
   dim: chalk.gray,
   bold: chalk.bold,
+  yellow: chalk.yellow,
 };
 
 // Display banner
@@ -411,15 +413,26 @@ async function manageConfig() {
 async function manageWhatsApp() {
   console.clear();
   console.log(c.bold(c.primary("📱 WhatsApp Manager\n")));
-  
+
+  const isReady = whatsappManager.getReadyState();
+
   const { waAction } = await inquirer.prompt([
     {
       type: "list",
       name: "waAction",
       message: "WhatsApp Actions:",
       choices: [
-        { name: "🔗 Connect WhatsApp", value: "connect" },
-        { name: "📊 Connection Status", value: "status" },
+        ...(isReady
+          ? [
+              { name: "🔗 Show QR Code (Re-scan)", value: "qr" },
+              { name: "📊 Connection Status", value: "status" },
+              { name: "👥 List Contacts", value: "contacts" },
+              { name: "💬 List Chats", value: "chats" },
+              { name: "🔗 LID Mapping", value: "lid" },
+            ]
+          : [
+              { name: "🔗 Connect WhatsApp", value: "connect" },
+            ]),
         { name: "💾 Backup Session", value: "backup" },
         { name: "🔄 Restore Session", value: "restore" },
         { name: "🗑️  Clear Session", value: "clear" },
@@ -430,16 +443,141 @@ async function manageWhatsApp() {
 
   if (waAction === "back") return;
 
-  if (waAction === "connect") {
-    console.log(c.info("To connect WhatsApp:"));
-    console.log("1. Send /whatsapp to your Telegram bot");
-    console.log("2. Scan the QR code with WhatsApp on your phone");
-    console.log("3. Wait for confirmation");
+  if (waAction === "connect" || waAction === "qr") {
+    if (waAction === "connect" && isReady) {
+      console.log(c.warning("WhatsApp is already connected!"));
+    } else {
+      console.log(c.info("\nGenerating QR code..."));
+      console.log(c.dim("Scan with WhatsApp on your phone\n"));
+
+      whatsappManager.on("qr", async (qr: string) => {
+        const qrcodeTerminal = await import("qrcode-terminal");
+        qrcodeTerminal.default.generate(qr, { small: true });
+      });
+
+      await whatsappManager.initialize();
+
+      console.log(c.yellow("\n⏳ Waiting for connection..."));
+      let attempts = 0;
+      while (attempts < 60) {
+        if (whatsappManager.getReadyState()) {
+          console.log(c.success("\n✅ Connected successfully!"));
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+        attempts++;
+      }
+      if (attempts >= 60) {
+        console.log(c.warning("\n⚠️ Timeout - please try again"));
+      }
+    }
   } else if (waAction === "status") {
     console.log();
-    console.log(`WhatsApp Status: ${c.success("✓ Connected")}`);
-    console.log(`Phone Number: ${c.info("+1 xxx-xxx-xxxx")}`);
-    console.log(`Session Age: ${c.info("3 days")}`);
+    const status = whatsappManager.getReadyState();
+    if (status) {
+      const info = await whatsappManager.getMe();
+      console.log(c.success("✅ WhatsApp Connected"));
+      console.log(`Phone Number: ${c.info(info.info?.number || "N/A")}`);
+      console.log(`Name: ${c.info(info.info?.name || "N/A")}`);
+    } else {
+      console.log(c.warning("⚠️ WhatsApp Not Connected"));
+      console.log(c.dim("Select 'Connect WhatsApp' to scan QR code"));
+    }
+  } else if (waAction === "contacts") {
+    console.log();
+    const spinner = ora("Fetching contacts...").start();
+    const result = await whatsappManager.getAllContacts();
+    spinner.stop();
+
+    if (result.success && result.contacts) {
+      console.log(c.secondary(`\n👥 Contacts (${result.totalContacts} total):\n`));
+      result.contacts.slice(0, 20).forEach((contact, i) => {
+        const lid = contact.lid ? c.dim(` [LID]`) : "";
+        console.log(`  ${i + 1}. ${contact.name || c.dim("No name")} - ${contact.number}${lid}`);
+      });
+    } else {
+      console.log(c.error("Failed to fetch contacts"));
+    }
+  } else if (waAction === "chats") {
+    console.log();
+    const spinner = ora("Fetching chats...").start();
+    const result = await whatsappManager.getChats();
+    spinner.stop();
+
+    if (result.success && result.chats) {
+      console.log(c.secondary(`\n💬 Chats (${result.totalChats} total):\n`));
+      result.chats.slice(0, 20).forEach((chat, i) => {
+        const unread = chat.unreadCount > 0 ? c.warning(` [${chat.unreadCount} unread]`) : "";
+        console.log(`  ${i + 1}. ${chat.name}${unread}`);
+      });
+    } else {
+      console.log(c.error("Failed to fetch chats"));
+    }
+  } else if (waAction === "lid") {
+    const { lidAction } = await inquirer.prompt([
+      {
+        type: "list",
+        name: "lidAction",
+        message: "LID Mapping:",
+        choices: [
+          { name: "🔍 LID → Phone Number", value: "lid-to-phone" },
+          { name: "🔍 Phone Number → LID", value: "phone-to-lid" },
+          { name: "👤 Get Contact by LID", value: "get-by-lid" },
+          { name: "⬅️  Back", value: "back" },
+        ],
+      },
+    ]);
+
+    if (lidAction === "back") {
+      await manageWhatsApp();
+      return;
+    }
+
+    if (lidAction === "lid-to-phone") {
+      const { lid } = await inquirer.prompt([
+        { type: "input", name: "lid", message: "Enter LID (e.g., 187743636676218910@lid):" },
+      ]);
+      const spinner = ora("Mapping...").start();
+      const result = await whatsappManager.getContactLidAndPhone(lid.lid);
+      spinner.stop();
+      if (result.success) {
+        console.log(c.secondary("\n🔗 Result:"));
+        console.log(`  LID: ${c.info(result.lid || lid.lid)}`);
+        console.log(`  Phone: ${result.phoneNumber ? c.info(result.phoneNumber) : c.warning("Not available (privacy enabled)")}`);
+      } else {
+        console.log(c.error(`Error: ${result.error}`));
+      }
+    } else if (lidAction === "phone-to-lid") {
+      const { phone } = await inquirer.prompt([
+        { type: "input", name: "phone", message: "Enter phone number (e.g., 1234567890):" },
+      ]);
+      const spinner = ora("Mapping...").start();
+      const result = await whatsappManager.getContactLidAndPhone(phone.phone);
+      spinner.stop();
+      if (result.success) {
+        console.log(c.secondary("\n🔗 Result:"));
+        console.log(`  Phone: ${c.info(result.phoneNumber || phone.phone)}`);
+        console.log(`  LID: ${result.lid ? c.info(result.lid) : c.warning("Not available")}`);
+      } else {
+        console.log(c.error(`Error: ${result.error}`));
+      }
+    } else if (lidAction === "get-by-lid") {
+      const { lid } = await inquirer.prompt([
+        { type: "input", name: "lid", message: "Enter LID (e.g., 187743636676218910@lid):" },
+      ]);
+      const spinner = ora("Fetching contact...").start();
+      const result = await whatsappManager.getContactByLid(lid.lid);
+      spinner.stop();
+      if (result.success && result.contact) {
+        console.log(c.secondary("\n👤 Contact Info:"));
+        console.log(`  Number: ${c.info(result.contact.number)}`);
+        console.log(`  Name: ${result.contact.name ? c.info(result.contact.name) : c.dim("N/A")}`);
+        console.log(`  LID: ${c.info(result.contact.lid)}`);
+        console.log(`  Business: ${result.contact.isBusiness ? c.info("Yes") : c.dim("No")}`);
+      } else {
+        console.log(c.error(`Error: ${result.error}`));
+      }
+    }
   }
 
   await inquirer.prompt([

@@ -1,5 +1,6 @@
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
+import "dotenv/config";
 
 // NOTE: whatsappManager and mastra are imported lazily (via dynamic import)
 // inside the functions that need them to avoid circular dependencies.
@@ -547,4 +548,69 @@ export function getAutoReplyConfig(): AutoReplyConfig {
 export function resetAutoReplyConfig(): void {
   autoReplyConfig = { ...defaultConfig };
   messageQueues.clear();
+}
+
+/**
+ * Load auto-reply configuration from environment variables
+ * Env vars:
+ *   WHATSAPP_AUTOREPLY_ENABLED=true/false
+ *   WHATSAPP_AUTOREPLY_MODE=manual/auto/smart
+ *   WHATSAPP_AUTOREPLY_DEBOUNCE_MINUTES=2
+ *   WHATSAPP_AUTOREPLY_MAX_REPLIES_PER_HOUR=10
+ *   WHATSAPP_AUTOREPLY_WHITELIST=1234567890,9876543210
+ *   WHATSAPP_AUTOREPLY_BLACKLIST=1111111111,2222222222
+ *   WHATSAPP_AUTOREPLY_USER_CONTEXT="Your context here"
+ *   WHATSAPP_AUTOREPLY_CUSTOM_INSTRUCTIONS="Your instructions here"
+ */
+export function loadAutoReplyConfigFromEnv(): void {
+  const envEnabled = process.env.WHATSAPP_AUTOREPLY_ENABLED?.toLowerCase();
+  const envMode = process.env.WHATSAPP_AUTOREPLY_MODE?.toLowerCase();
+  const envDebounce = process.env.WHATSAPP_AUTOREPLY_DEBOUNCE_MINUTES;
+  const envMaxReplies = process.env.WHATSAPP_AUTOREPLY_MAX_REPLIES_PER_HOUR;
+  const envWhitelist = process.env.WHATSAPP_AUTOREPLY_WHITELIST;
+  const envBlacklist = process.env.WHATSAPP_AUTOREPLY_BLACKLIST;
+  const envContext = process.env.WHATSAPP_AUTOREPLY_USER_CONTEXT;
+  const envInstructions = process.env.WHATSAPP_AUTOREPLY_CUSTOM_INSTRUCTIONS;
+
+  if (envEnabled === "true") {
+    autoReplyConfig.enabled = true;
+  } else if (envEnabled === "false") {
+    autoReplyConfig.enabled = false;
+  }
+
+  if (envMode && ["manual", "auto", "smart"].includes(envMode)) {
+    autoReplyConfig.mode = envMode as "manual" | "auto" | "smart";
+  }
+
+  if (envDebounce) {
+    const minutes = parseInt(envDebounce);
+    if (!isNaN(minutes) && minutes >= 1 && minutes <= 30) {
+      autoReplyConfig.debounceMs = minutes * 60 * 1000;
+    }
+  }
+
+  if (envMaxReplies) {
+    const max = parseInt(envMaxReplies);
+    if (!isNaN(max) && max >= 1) {
+      autoReplyConfig.maxRepliesPerHour = max;
+    }
+  }
+
+  if (envWhitelist) {
+    autoReplyConfig.whitelist = envWhitelist.split(",").map(n => n.replace(/\D/g, "")).filter(n => n.length > 0);
+  }
+
+  if (envBlacklist) {
+    autoReplyConfig.blacklist = envBlacklist.split(",").map(n => n.replace(/\D/g, "")).filter(n => n.length > 0);
+  }
+
+  if (envContext) {
+    autoReplyConfig.userContext = envContext;
+  }
+
+  if (envInstructions) {
+    autoReplyConfig.customInstructions = envInstructions;
+  }
+
+  console.log(`[AutoReply] Config loaded from env: enabled=${autoReplyConfig.enabled}, mode=${autoReplyConfig.mode}, debounce=${autoReplyConfig.debounceMs / 60000}min`);
 }

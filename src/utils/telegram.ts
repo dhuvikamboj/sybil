@@ -5,9 +5,51 @@ import { whatsappManager } from "./whatsapp-client.js";
 import { logger } from "./logger.js";
 import { getModelConfig, getProviderDisplayName } from "./model-config.js";
 import { processWithNetwork } from "../agents/network.js";
-import { isAuthenticated, verifyOTP, generateOTP, storeOTP } from "./telegram-auth.js";
+import { isAuthenticated, verifyOTP, generateOTP, storeOTP, getAuthenticatedUsers } from "./telegram-auth.js";
 import { RequestContext } from "@mastra/core/request-context";
 import { promises as fs } from "fs";
+
+// Simple throttle helper
+function throttle<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number,
+  options: { leading?: boolean; trailing?: boolean } = {}
+): ((...args: Parameters<T>) => void) & { cancel: () => void } {
+  let timeout: NodeJS.Timeout | null = null;
+  let previous = 0;
+  const { leading = true, trailing = true } = options;
+  
+  const throttled = function(this: any, ...args: Parameters<T>) {
+    const now = Date.now();
+    if (!previous && !leading) previous = now;
+    const remaining = wait - (now - previous);
+    
+    if (remaining <= 0 || remaining > wait) {
+      if (timeout) {
+        clearTimeout(timeout);
+        timeout = null;
+      }
+      previous = now;
+      func.apply(this, args);
+    } else if (!timeout && trailing) {
+      timeout = setTimeout(() => {
+        previous = leading ? Date.now() : 0;
+        timeout = null;
+        func.apply(this, args);
+      }, remaining);
+    }
+  };
+  
+  throttled.cancel = () => {
+    if (timeout) {
+      clearTimeout(timeout);
+      timeout = null;
+    }
+    previous = 0;
+  };
+  
+  return throttled;
+}
 
 // Configuration
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -210,6 +252,7 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         logger.info("AGENT", `Attempt ${attempt} of ${maxRetries} for response generation`);
+        lastMessageId = await bot.sendMessage(chatId, `🌐 Thinking...`).then(msg => msg.message_id);
 
         const stream = await agent.stream(text, {
           maxSteps: 15,
@@ -233,17 +276,6 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
                   error: result.error,
                   errorCode: result.errorCode
                 }));
-
-              // Track tool calls for response
-              toolCalls.forEach((tc: any) => {
-                const toolName = tc.payload.toolName;
-                const result = toolResults.find((tr: any) => tr.toolName === toolName);
-                toolCallsMade.push({
-                  name: toolName,
-                  success: result ? !result.error : true,
-                  error: result?.error
-                });
-              });
 
               logger.info("AGENT", `Step completed`, {
                 attempt,
@@ -270,36 +302,117 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
           },
         });
 
+        // Update function for sending/editing messages
+        const performUpdate = async () => {
+          // Build current display with tool calls section
+          let currentDisplay = fullText;
+          if (toolCallsMade.length > 0) {
+            currentDisplay += "\n\n🔧 *Tools:*\n";
+            toolCallsMade.forEach((tool, index) => {
+              const status = tool.success ? "✅" : "⏳";
+              currentDisplay += `${index + 1}. ${status} \`${tool.name}\`\n`;
+            });
+          }
+          
+          const formattedResponse = formatForTelegram(currentDisplay);
+          if (lastMessageId) {
+            // Edit existing message (don't wait for previous edit)
+            pendingEdit = bot.editMessageText(formattedResponse, {
+              chat_id: chatId,
+              message_id: lastMessageId,
+              parse_mode: "Markdown",
+            }).catch(() => {
+              // Ignore edit conflicts
+            }) as Promise<void>;
+          } else {
+            // Send first message
+            lastMessageId = await bot.sendMessage(chatId, formattedResponse, {
+              parse_mode: "Markdown",
+            }).then(msg => msg.message_id);
+          }
+        };
+        
+        // Throttled version for streaming updates
+        const updateMessage = throttle(performUpdate, 1000, { leading: true, trailing: true });
+        
         // Process streaming response
         for await (const chunk of stream.fullStream) {
           switch (chunk.type) {
             case "text-delta":
               if ('text' in chunk.payload) {
                 fullText += chunk.payload.text;
+                updateMessage();
+              }
+              break;
 
-                // Send/update message periodically for streaming effect
-                if (fullText.length > 0 && fullText.length % 100 < 10) {
-                  const formattedResponse = formatForTelegram(fullText);
-                  if (lastMessageId) {
-                    // Edit existing message (don't wait for previous edit)
-                    pendingEdit = bot.editMessageText(formattedResponse, {
-                      chat_id: chatId,
-                      message_id: lastMessageId,
-                      parse_mode: "Markdown",
-                    }).catch(() => {
-                      // Ignore edit conflicts
-                    }) as Promise<void>;
-                  } else {
-                    // Send first message
-                    lastMessageId = await bot.sendMessage(chatId, formattedResponse, {
-                      parse_mode: "Markdown",
-                    }).then(msg => msg.message_id);
-                  }
+            case "tool-call":
+              const toolCall = chunk.payload;
+              // Add to tracking as in-progress
+              toolCallsMade.push({
+                name: (toolCall as any).toolName || (toolCall as any).name,
+                success: false,
+                error: undefined,
+              });
+              
+              // Immediately display the new tool call
+              if (lastMessageId) {
+                await (pendingEdit || Promise.resolve());
+                
+                let currentDisplay = fullText;
+                if (toolCallsMade.length > 0) {
+                  currentDisplay += "\n\n🔧 *Tools:*\n";
+                  toolCallsMade.forEach((tool, index) => {
+                    let toolStatus = tool.success ? "✅" : "⏳";
+                    if (tool.error) toolStatus = "❌";
+                    currentDisplay += `${index + 1}. ${toolStatus} \`${tool.name}\`\n`;
+                  });
                 }
+                
+                const formattedResponse = formatForTelegram(currentDisplay);
+                pendingEdit = bot.editMessageText(formattedResponse, {
+                  chat_id: chatId,
+                  message_id: lastMessageId,
+                  parse_mode: "Markdown",
+                }).catch(() => {
+                  // Ignore edit conflicts
+                }) as Promise<void>;
               }
               break;
 
             case "tool-result":
+              const toolResult = chunk.payload;
+              
+              // Update tool callsMade with result
+              const existingIndex = toolCallsMade.findIndex(t => t.name === toolResult.toolName);
+              if (existingIndex >= 0) {
+                toolCallsMade[existingIndex].success = !toolResult.isError;
+                toolCallsMade[existingIndex].error = toolResult.isError ? (toolResult as any).error : undefined;
+              }
+              
+              // Immediately display the updated tool call status
+              if (lastMessageId) {
+                await (pendingEdit || Promise.resolve());
+                
+                let currentDisplay = fullText;
+                if (toolCallsMade.length > 0) {
+                  currentDisplay += "\n\n🔧 *Tools:*\n";
+                  toolCallsMade.forEach((tool, index) => {
+                    let toolStatus = tool.success ? "✅" : "⏳";
+                    if (tool.error) toolStatus = "❌";
+                    currentDisplay += `${index + 1}. ${toolStatus} \`${tool.name}\`\n`;
+                  });
+                }
+                
+                const formattedResponse = formatForTelegram(currentDisplay);
+                pendingEdit = bot.editMessageText(formattedResponse, {
+                  chat_id: chatId,
+                  message_id: lastMessageId,
+                  parse_mode: "Markdown",
+                }).catch(() => {
+                  // Ignore edit conflicts
+                }) as Promise<void>;
+              }
+              
               logger.debug("AGENT", `Tool result: ${chunk.payload.toolName}`);
               break;
 
@@ -309,7 +422,14 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
           }
         }
 
-        // Build tool calls summary
+        // Ensure final update is sent immediately
+        updateMessage.cancel();
+        await (pendingEdit || Promise.resolve());
+        if (fullText.length > 0 || toolCallsMade.length > 0) {
+          await performUpdate();
+        }
+
+        // Build final tool calls summary with all results
         let toolCallsSection = "";
         if (toolCallsMade.length > 0) {
           toolCallsSection = "\n\n🔧 *Tools Used:*\n";
@@ -737,7 +857,7 @@ export async function handleCommand(msg: TelegramBot.Message): Promise<void> {
       agentSession.mode = "agent";
       await bot.sendMessage(
         chatId,
-        "🤖 **Agent Mode Activated** *[DEFAULT]*\n\n" +
+        "🤖 **Agent Mode Activated**\n\n" +
         "All your messages will now be handled by the **Executor Agent**.\n\n" +
         "The Executor Agent excels at:\n" +
         "• Writing and executing code\n" +
@@ -755,13 +875,13 @@ export async function handleCommand(msg: TelegramBot.Message): Promise<void> {
       await bot.sendMessage(
         chatId,
         "💬 **Normal Mode Activated**\n\n" +
-        "All your messages will now be handled by the **Autonomous Agent**.\n\n" +
+        "All your messages will now be handled by the **Autonomous Agent** (default).\n\n" +
         "The Autonomous Agent can:\n" +
         "• Handle general conversations\n" +
         "• Learn from interactions\n" +
         "• Plan and execute tasks\n" +
         "• Access all available tools\n\n" +
-        "Use /agent to switch back to agent mode (default)."
+        "What can I help you with?"
       );
       break;
     }
@@ -773,7 +893,7 @@ export async function handleCommand(msg: TelegramBot.Message): Promise<void> {
         "🎯 *Session Modes:*\n" +
         "/plan - Plan mode (planner agent)\n" +
         "/research - Research mode (research agent)\n" +
-        "/agent - Agent mode (executor agent) *[DEFAULT]*\n" +
+        "/agent - Agent mode (executor agent)\n" +
         "/normal - Normal mode (autonomous agent)\n\n" +
         "📝 *Planning:*\n" +
         "/plan - Switch to plan mode\n" +
@@ -805,10 +925,10 @@ export async function handleCommand(msg: TelegramBot.Message): Promise<void> {
         "• /help - Show this help message\n" +
         "• /status - Check your current status and progress\n\n" +
         "🎛️ *Session Modes:*\n" +
-        "• /agent - Agent mode: All messages go to Executor Agent *[DEFAULT]*\n" +
         "• /plan - Plan mode: All messages go to Planner Agent\n" +
         "• /research - Research mode: All messages go to Research Agent\n" +
-        "• /normal - Normal mode: All messages go to Autonomous Agent\n\n" +
+        "• /agent - Agent mode: All messages go to Executor Agent\n" +
+        "• /normal - Normal mode: All messages go to Autonomous Agent (default)\n\n" +
         "🧠 *Memory & Learning:*\n" +
         "• /memory - Show what I remember about you\n" +
         "• /reflect - Trigger self-reflection and improvement\n" +
@@ -1457,7 +1577,7 @@ export function setupBot(): void {
     });
 
     // Get all active chat sessions and notify them
-    for (const [chatId, session] of userSessions.entries()) {
+    for (const {chatId} of getAuthenticatedUsers()) {
       try {
         const messageCount = data.messageCount || 1;
         const summary = data.summary || "New message received";

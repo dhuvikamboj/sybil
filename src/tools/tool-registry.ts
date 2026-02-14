@@ -25,6 +25,7 @@ import {
   getWhatsAppChatsTool,
   getWhatsAppMessagesTool,
   getWhatsAppContactTool,
+  getAllWhatsAppContactsTool,
   getMyWhatsAppInfoTool,
   broadcastWhatsAppMessageTool,
 } from "./whatsapp-tools.js";
@@ -68,7 +69,7 @@ import { dynamicToolRegistry } from "./dynamic/registry.js";
 
 /**
  * All available tools for dynamic discovery
- * Total: 32 tools across multiple domains (24 static + 3 dynamic tool generation + 5 dynamic skill generation)
+ * Total: 33 tools across multiple domains (25 static + 3 dynamic tool generation + 5 dynamic skill generation)
  */
 export const allTools = {
   // Web tools (4)
@@ -77,13 +78,14 @@ export const allTools = {
   extractStructuredData: extractStructuredDataTool,
   deepResearch: deepResearchTool,
 
-  // WhatsApp tools (10)
+  // WhatsApp tools (11)
   getWhatsAppStatus: getWhatsAppStatusTool,
   initializeWhatsApp: initializeWhatsAppTool,
   sendWhatsAppMessage: sendWhatsAppMessageTool,
   getWhatsAppChats: getWhatsAppChatsTool,
   getWhatsAppMessages: getWhatsAppMessagesTool,
   getWhatsAppContact: getWhatsAppContactTool,
+  getAllWhatsAppContacts: getAllWhatsAppContactsTool,
   getMyWhatsAppInfo: getMyWhatsAppInfoTool,
   broadcastWhatsAppMessage: broadcastWhatsAppMessageTool,
   configureAutoReply: configureAutoReplyTool,

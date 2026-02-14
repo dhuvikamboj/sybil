@@ -5,6 +5,7 @@ import { whatsappManager } from "./utils/whatsapp-client.js";
 import { validateModelConfig, getProviderDisplayName, getModelConfig } from "./utils/model-config.js";
 import { logger } from "./utils/logger.js";
 import { dynamicToolRegistry } from "./tools/dynamic/registry.js";
+import { loadAutoReplyConfigFromEnv } from "./tools/whatsapp-autoreply-tools.js";
 
 async function main(): Promise<void> {
   console.log("🚀 Starting sybil...\n");
@@ -46,6 +47,9 @@ async function main(): Promise<void> {
   } catch (error) {
     console.log(" - Dynamic Tools: 0 loaded (none available yet)");
   }
+
+  // Load auto-reply config from environment
+  loadAutoReplyConfigFromEnv();
   console.log();
 
   logger.info("APP", "Mastra initialized", {
@@ -57,6 +61,32 @@ async function main(): Promise<void> {
 
   // Setup Telegram bot
   setupBot();
+
+  // Initialize WhatsApp (auto-connect if session exists)
+  console.log("📱 Initializing WhatsApp...");
+  try {
+    await whatsappManager.initialize();
+    
+    // Wait briefly for connection
+    let waReady = false;
+    for (let i = 0; i < 10; i++) {
+      if (whatsappManager.getReadyState()) {
+        waReady = true;
+        break;
+      }
+      await new Promise(r => setTimeout(r, 500));
+    }
+    
+    if (waReady) {
+      const waInfo = await whatsappManager.getMe();
+      console.log(` ✅ WhatsApp Connected: ${waInfo.info?.number || "Ready"}`);
+    } else {
+      console.log(` ⚠️  WhatsApp QR code pending (scan with WhatsApp to connect)`);
+    }
+  } catch (error) {
+    console.log(` ❌ WhatsApp failed to initialize: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+  console.log();
 
   // Handle graceful shutdown
   process.on("SIGINT", async () => {
@@ -79,7 +109,6 @@ async function main(): Promise<void> {
 
   console.log("\n✨ sybil is fully operational!");
   console.log("📝 Send /start to your bot on Telegram to begin");
-  console.log("📱 WhatsApp integration available (use /whatsapp to setup)");
   console.log("📋 Logs are saved to: ./logs/sybil.log\n");
 
   logger.info("APP", "sybil is fully operational");
