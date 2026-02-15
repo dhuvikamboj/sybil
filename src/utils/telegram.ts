@@ -255,7 +255,7 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
         lastMessageId = await bot.sendMessage(chatId, `🌐 Thinking...`).then(msg => msg.message_id);
 
         const stream = await agent.stream(text, {
-          maxSteps: 15,
+          maxSteps: 100,
           memory: {
             thread: session.threadId,
             resource: session.resourceId,

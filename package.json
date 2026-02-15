@@ -1,6 +1,6 @@
 {
-  "name": "sybil",
-  "version": "1.0.0",
+  "name": "@fortressllm/sybil",
+  "version": "0.0.3",
   "description": "Autonomous AI agent with Mastra, memory, planning, and Telegram integration",
   "main": "dist/index.js",
   "bin": {
@@ -13,7 +13,7 @@
     "autonomous",
     "telegram"
   ],
-  "author": "",
+  "author": "FortressLLM",
   "license": "ISC",
   "type": "module",
   "dependencies": {
