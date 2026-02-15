@@ -35,7 +35,7 @@ An advanced autonomous AI agent built with [Mastra](https://mastra.ai).
 ### Interactive Setup (Recommended)
 ```bash
 # Complete setup in one command
-sybil init
+npx sybilcli init
 
 # Follow the interactive wizard:
 # 1. Enter Telegram Bot Token
@@ -79,7 +79,7 @@ PODMAN_WORKSPACE_DIR=/path/to/workspace
 ```bash
 npm start
 # OR use CLI
-sybil start
+npx sybilcli start
 ```
 
 #### 6. Connect to Bot
@@ -106,7 +106,7 @@ npm start
 For secure access control:
 
 ```bash
-sybil otp
+npx sybilcli otp
 # Generate OTP → Share 6-digit code → User sends code to your bot
 ```
 
@@ -114,25 +114,25 @@ sybil otp
 
 ### Interactive Terminal Interface
 ```bash
-sybil # Launch interactive TUI menu (no arguments)
+npx sybilcli # Launch interactive TUI menu (no arguments)
 ```
 
 ### Available Commands (12 total)
 
 | Command | Description |
 |---------|-------------|
-| `sybil init` | Interactive setup wizard with configuration prompts |
-| `sybil start` | Start the bot service |
-| `sybil stop` | Stop the bot service |
-| `sybil status` | Check bot status and health |
-| `sybil doctor` | Run system diagnostics and health checks |
-| `sybil config` | Manage configuration (edit, list, validate) |
-| `sybil logs` | View and filter bot logs |
-| `sybil backup` | Create backup of data and configuration |
-| `sybil restore` | Restore from backup |
-| `sybil update` | Update Sybil to latest version |
-| `sybil whatsapp` | Manage WhatsApp connection and sessions |
-| `sybil otp` | OTP authentication management |
+| `npx sybilcli init` | Interactive setup wizard with configuration prompts |
+| `npx sybilcli start` | Start the bot service |
+| `npx sybilcli stop` | Stop the bot service |
+| `npx sybilcli status` | Check bot status and health |
+| `npx sybilcli doctor` | Run system diagnostics and health checks |
+| `npx sybilcli config` | Manage configuration (edit, list, validate) |
+| `npx sybilcli logs` | View and filter bot logs |
+| `npx sybilcli backup` | Create backup of data and configuration |
+| `npx sybilcli restore` | Restore from backup |
+| `npx sybilcli update` | Update Sybil to latest version |
+| `npx sybilcli whatsapp` | Manage WhatsApp connection and sessions |
+| `npx sybilcli otp` | OTP authentication management |
 
 ### Usage Examples
 ```bash
@@ -140,51 +140,51 @@ sybil # Launch interactive TUI menu (no arguments)
 sybil
 
 # Setup and configuration
-sybil init
-sybil config --edit
+npx sybilcli init
+npx sybilcli config --edit
 
 # Service management
-sybil start
-sybil status
-sybil stop
+npx sybilcli start
+npx sybilcli status
+npx sybilcli stop
 
 # Authentication
-sybil otp                    # Interactive OTP menu
-sybil otp --generate         # Generate new OTP code
+npx sybilcli otp                    # Interactive OTP menu
+npx sybilcli otp --generate         # Generate new OTP code
 
 # Monitoring
-sybil logs --follow          # Live log streaming
-sybil doctor                 # System health check
+npx sybilcli logs --follow          # Live log streaming
+npx sybilcli doctor                 # System health check
 
 # WhatsApp management
-sybil whatsapp               # Interactive WhatsApp menu
+npx sybilcli whatsapp               # Interactive WhatsApp menu
 
 # Backup and maintenance
-sybil backup
-sybil update
+npx sybilcli backup
+npx sybilcli update
 ```
 
 ### Quick Commands
 ```bash
 # Setup & Management
-sybil init         # Interactive setup wizard
-sybil start        # Start bot
-sybil stop         # Stop bot
-sybil status       # Check status
-sybil doctor       # System diagnostics
+npx sybilcli init         # Interactive setup wizard
+npx sybilcli start        # Start bot
+npx sybilcli stop         # Stop bot
+npx sybilcli status       # Check status
+npx sybilcli doctor       # System diagnostics
 
 # Authentication
-sybil otp --generate     # Generate OTP for user
-sybil otp --list        # List pending/authorized users
-sybil otp --revoke 123  # Revoke user access
+npx sybilcli otp --generate     # Generate OTP for user
+npx sybilcli otp --list        # List pending/authorized users
+npx sybilcli otp --revoke 123  # Revoke user access
 
 # Configuration
-sybil config --edit     # Interactive config
-sybil config --list     # Show all settings
+npx sybilcli config --edit     # Interactive config
+npx sybilcli config --list     # Show all settings
 
 # Monitoring
-sybil logs --follow     # Live logs
-sybil whatsapp --status # WhatsApp connection
+npx sybilcli logs --follow     # Live logs
+npx sybilcli whatsapp --status # WhatsApp connection
 ```
 
 ## Telegram Commands

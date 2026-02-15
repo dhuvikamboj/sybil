@@ -1,3 +1,11 @@
+#!/usr/bin/env node
+/**
+ * Sybil - An autonomous AI agent with Mastra, memory, planning, and Telegram integration
+ *
+ * Copyright (c) 2024 Fortress LLM, Inc. All rights reserved.
+ * Use of this source code is governed by the MIT license that can be
+ * found in the LICENSE file.
+ */
 import "dotenv/config";
 import { setupBot, stopBot } from "./utils/telegram.js";
 import { mastra } from "./mastra/index.js";

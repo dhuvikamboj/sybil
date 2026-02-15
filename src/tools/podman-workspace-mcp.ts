@@ -761,7 +761,7 @@ const executeCommandTool = createTool({
     timeout: z.number().optional().describe("Timeout in milliseconds (default: 30000)"),
     user: z.string().optional().describe("User to run as (default: 'sandbox')"),
     workingDir: z.string().optional().describe("Working directory inside container. Use paths starting with /workspace (e.g., '/workspace' or '/workspace/project'). Default: '/workspace'"),
-    env: z.record(z.string()).optional().describe("Environment variables"),
+    env: z.record(z.string(), z.string()).optional().describe("Environment variables"),
   }),
   outputSchema: z.object({
     stdout: z.string(),

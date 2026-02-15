@@ -259,7 +259,7 @@ export const extractStructuredDataTool = createTool({
   `,
   inputSchema: z.object({
     url: z.string().url().describe("The URL of the web page to scrape"),
-    fields: z.record(z.object({
+    fields: z.record(z.string(), z.object({
       selector: z.string().describe("CSS selector to extract the field"),
       attribute: z.string().optional().describe("Attribute to extract (e.g., 'href', 'src'). Leave empty for text content"),
       multiple: z.boolean().optional().default(false).describe("Whether to extract multiple values"),
@@ -268,7 +268,7 @@ export const extractStructuredDataTool = createTool({
   outputSchema: z.object({
     success: z.boolean(),
     url: z.string(),
-    data: z.record(z.any()),
+    data: z.record(z.string(), z.any()),
     error: z.string().optional(),
   }),
   execute: async (inputData) => {

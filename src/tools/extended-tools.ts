@@ -355,11 +355,11 @@ export const queryDatabaseTool = createTool({
   `,
   inputSchema: z.object({
     query: z.string().describe("SQL query to execute"),
-    parameters: z.record(z.union([z.string(), z.number(), z.boolean()])).optional().describe("Query parameters"),
+    parameters: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional().describe("Query parameters"),
   }),
   outputSchema: z.object({
     success: z.boolean(),
-    results: z.array(z.record(z.any())).optional(),
+    results: z.array(z.record(z.string(), z.any())).optional(),
     rowCount: z.number().optional(),
     message: z.string().optional(),
     error: z.string().optional(),

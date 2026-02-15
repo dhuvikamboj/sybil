@@ -1,10 +1,11 @@
 {
   "name": "@fortressllm/sybil",
-  "version": "0.0.3",
+  "version": "0.0.31",
   "description": "Autonomous AI agent with Mastra, memory, planning, and Telegram integration",
   "main": "dist/index.js",
   "bin": {
-    "sybil": "./dist/cli/index.js"
+    "sybilcli": "./dist/cli/index.js",
+    "sybil": "./dist/index.js"
   },
   "keywords": [
     "mastra",
@@ -47,7 +48,7 @@
     "react": "^18.2.0",
     "turndown": "^7.2.2",
     "whatsapp-web.js": "^1.34.6",
-    "zod": "^3.25.76"
+    "zod": "^4.0.16"
   },
   "devDependencies": {
     "@types/blessed": "^0.1.25",
@@ -69,3 +70,4 @@
     "cli": "node dist/cli.js"
   }
 }
+

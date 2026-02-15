@@ -41,7 +41,7 @@ export const startCommand = new Command("start")
         // Start as daemon using PM2 or nohup
         console.log(chalk.cyan("🚀 Starting Sybil as daemon...\n"));
         
-        const child = spawn("nohup", ["npm", "run", "start"], {
+        const child = spawn("nohup", ["npx", "sybil"], {
           detached: true,
           stdio: "ignore",
           env: { ...process.env, PORT: options.port },
@@ -57,7 +57,7 @@ export const startCommand = new Command("start")
         console.log(chalk.cyan("🚀 Starting Sybil...\n"));
         console.log(chalk.gray("Press Ctrl+C to stop\n"));
         
-        const child = spawn("npm", ["run", "start"], {
+        const child = spawn("npx", ["sybil"], {
           stdio: "inherit",
           env: { ...process.env, PORT: options.port },
         });
@@ -70,7 +70,7 @@ export const startCommand = new Command("start")
 
     } catch (error) {
       spinner.fail(chalk.red("Failed to start Sybil"));
-      console.error(error);
+      console.error(error instanceof Error ? error.message : error);
       process.exit(1);
     }
   });
