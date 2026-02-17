@@ -1,12 +1,17 @@
 {
   "name": "@fortressllm/sybil",
-  "version": "0.0.31",
+  "version": "0.0.35",
   "description": "Autonomous AI agent with Mastra, memory, planning, and Telegram integration",
   "main": "dist/index.js",
   "bin": {
     "sybilcli": "./dist/cli/index.js",
     "sybil": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "assets",
+    "README.md"
+  ],
   "keywords": [
     "mastra",
     "ai",
@@ -17,6 +22,9 @@
   "author": "FortressLLM",
   "license": "ISC",
   "type": "module",
+  "homepage": "https://fortressllm.com",
+  "repository": {"type": "git", "url": "https://github.com/fortressllm/sybil.git"},
+  "readme": "README.md",
   "dependencies": {
     "@ai-sdk/openai": "^3.0.28",
     "@ai-sdk/openai-compatible": "^2.0.30",

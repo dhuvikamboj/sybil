@@ -1,6 +1,7 @@
 # Sybil - Advanced Autonomous AI Agent
 
 <p align="center">
+
   <img src="assets/logo.png" alt="Sybil Logo" width="400" />
 </p>
 
@@ -34,8 +35,13 @@ An advanced autonomous AI agent built with [Mastra](https://mastra.ai).
 
 ### Interactive Setup (Recommended)
 ```bash
+#install sybilcli globally
+npm i -g npm i @fortressllm/sybil
+# create a directory where all your secrets and workspace will reside
+mkdir sybil
+cd sybil
 # Complete setup in one command
-npx sybilcli init
+sybilcli init
 
 # Follow the interactive wizard:
 # 1. Enter Telegram Bot Token
@@ -46,8 +52,11 @@ npx sybilcli init
 
 ### Manual Setup
 
-#### 1. Install Dependencies
+#### 1. Clone the repo and Install Dependencies
 ```bash
+git clone https://github.com/fortressllm/sybil.git
+
+
 npm install
 ```
 
@@ -79,7 +88,7 @@ PODMAN_WORKSPACE_DIR=/path/to/workspace
 ```bash
 npm start
 # OR use CLI
-npx sybilcli start
+sybilcli start
 ```
 
 #### 6. Connect to Bot
@@ -106,7 +115,7 @@ npm start
 For secure access control:
 
 ```bash
-npx sybilcli otp
+sybilcli otp
 # Generate OTP → Share 6-digit code → User sends code to your bot
 ```
 
@@ -114,25 +123,25 @@ npx sybilcli otp
 
 ### Interactive Terminal Interface
 ```bash
-npx sybilcli # Launch interactive TUI menu (no arguments)
+sybilcli # Launch interactive TUI menu (no arguments)
 ```
 
 ### Available Commands (12 total)
 
 | Command | Description |
 |---------|-------------|
-| `npx sybilcli init` | Interactive setup wizard with configuration prompts |
-| `npx sybilcli start` | Start the bot service |
-| `npx sybilcli stop` | Stop the bot service |
-| `npx sybilcli status` | Check bot status and health |
-| `npx sybilcli doctor` | Run system diagnostics and health checks |
-| `npx sybilcli config` | Manage configuration (edit, list, validate) |
-| `npx sybilcli logs` | View and filter bot logs |
-| `npx sybilcli backup` | Create backup of data and configuration |
-| `npx sybilcli restore` | Restore from backup |
-| `npx sybilcli update` | Update Sybil to latest version |
-| `npx sybilcli whatsapp` | Manage WhatsApp connection and sessions |
-| `npx sybilcli otp` | OTP authentication management |
+| `sybilcli init` | Interactive setup wizard with configuration prompts |
+| `sybilcli start` | Start the bot service |
+| `sybilcli stop` | Stop the bot service |
+| `sybilcli status` | Check bot status and health |
+| `sybilcli doctor` | Run system diagnostics and health checks |
+| `sybilcli config` | Manage configuration (edit, list, validate) |
+| `sybilcli logs` | View and filter bot logs |
+| `sybilcli backup` | Create backup of data and configuration |
+| `sybilcli restore` | Restore from backup |
+| `sybilcli update` | Update Sybil to latest version |
+| `sybilcli whatsapp` | Manage WhatsApp connection and sessions |
+| `sybilcli otp` | OTP authentication management |
 
 ### Usage Examples
 ```bash
@@ -140,51 +149,51 @@ npx sybilcli # Launch interactive TUI menu (no arguments)
 sybil
 
 # Setup and configuration
-npx sybilcli init
-npx sybilcli config --edit
+sybilcli init
+sybilcli config --edit
 
 # Service management
-npx sybilcli start
-npx sybilcli status
-npx sybilcli stop
+sybilcli start
+sybilcli status
+sybilcli stop
 
 # Authentication
-npx sybilcli otp                    # Interactive OTP menu
-npx sybilcli otp --generate         # Generate new OTP code
+sybilcli otp                    # Interactive OTP menu
+sybilcli otp --generate         # Generate new OTP code
 
 # Monitoring
-npx sybilcli logs --follow          # Live log streaming
-npx sybilcli doctor                 # System health check
+sybilcli logs --follow          # Live log streaming
+sybilcli doctor                 # System health check
 
 # WhatsApp management
-npx sybilcli whatsapp               # Interactive WhatsApp menu
+sybilcli whatsapp               # Interactive WhatsApp menu
 
 # Backup and maintenance
-npx sybilcli backup
-npx sybilcli update
+sybilcli backup
+sybilcli update
 ```
 
 ### Quick Commands
 ```bash
 # Setup & Management
-npx sybilcli init         # Interactive setup wizard
-npx sybilcli start        # Start bot
-npx sybilcli stop         # Stop bot
-npx sybilcli status       # Check status
-npx sybilcli doctor       # System diagnostics
+sybilcli init         # Interactive setup wizard
+sybilcli start        # Start bot
+sybilcli stop         # Stop bot
+sybilcli status       # Check status
+sybilcli doctor       # System diagnostics
 
 # Authentication
-npx sybilcli otp --generate     # Generate OTP for user
-npx sybilcli otp --list        # List pending/authorized users
-npx sybilcli otp --revoke 123  # Revoke user access
+sybilcli otp --generate     # Generate OTP for user
+sybilcli otp --list        # List pending/authorized users
+sybilcli otp --revoke 123  # Revoke user access
 
 # Configuration
-npx sybilcli config --edit     # Interactive config
-npx sybilcli config --list     # Show all settings
+sybilcli config --edit     # Interactive config
+sybilcli config --list     # Show all settings
 
 # Monitoring
-npx sybilcli logs --follow     # Live logs
-npx sybilcli whatsapp --status # WhatsApp connection
+sybilcli logs --follow     # Live logs
+sybilcli whatsapp --status # WhatsApp connection
 ```
 
 ## Telegram Commands
@@ -275,6 +284,54 @@ npx sybilcli whatsapp --status # WhatsApp connection
 ### Configuration
 - 📋 [Environment Variables](.env.example) - Complete environment configuration
 - 🗂️ [Podman Workspace](src/tools/podman-workspace-mcp.ts) - Sandboxed execution configuration
+
+## ⚠️ Legal Disclaimer & Terms of Service Compliance
+
+**IMPORTANT**: This software includes integrations with third-party services that may violate their Terms of Service. Use at your own risk.
+
+### WhatsApp Integration
+This project uses `whatsapp-web.js` to interact with WhatsApp Web. **WhatsApp automation is against WhatsApp's Terms of Service**. Using this feature may result in:
+- Account suspension or permanent bans
+- Legal action from Meta/WhatsApp
+- Loss of access to your WhatsApp account
+
+By using the WhatsApp integration, you acknowledge that:
+- You are solely responsible for any consequences
+- This tool is for educational and personal use only
+- You will not use it for spam, harassment, or unauthorized messaging
+- You have obtained consent from message recipients where required by law
+
+### Telegram Bot API
+This project uses the Telegram Bot API. Ensure your usage complies with:
+- [Telegram Terms of Service](https://telegram.org/tos)
+- [Telegram Bot Platform Terms](https://telegram.org/tos/bot-developers)
+- Local laws regarding automated messaging and data handling
+
+### Web Scraping & Browser Automation
+Features using Playwright for web browsing and scraping may:
+- Violate websites' Terms of Service
+- Be prohibited by robots.txt files
+- Infringe on copyrights or terms of use
+
+Always:
+- Check target website's Terms of Service before scraping
+- Respect robots.txt directives
+- Obtain permission when required
+- Comply with applicable data protection laws (GDPR, CCPA, etc.)
+
+### General Liability
+The authors and contributors of this project:
+- **Assume no liability** for any legal issues, account bans, or damages
+- **Provide no warranty** - this software is provided "AS IS"
+- **Are not responsible** for how you choose to use this software
+
+### Compliance Recommendations
+- Review all relevant Terms of Service before use
+- Consult legal counsel if using for commercial purposes
+- Use only on accounts/services you own or have explicit permission to access
+- Consider using official APIs with proper authorization instead of unofficial methods
+
+**By using this software, you agree to take full responsibility for ensuring your usage complies with all applicable laws and terms of service.**
 
 ## License
 
