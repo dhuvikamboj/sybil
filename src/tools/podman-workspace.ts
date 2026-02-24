@@ -4,13 +4,30 @@ import { promisify } from 'util';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
+import { fileURLToPath } from 'url';
 
 const exec = promisify(execCallback);
 
 /**
  * Complete Podman-based OS Sandbox with Persistent Workspace
- * The workspace directory on host is bind-mounted to container
- * Files persist even after container is destroyed
+ * 
+ * The workspace directory on host is bind-mounted to container.
+ * All files, including installed packages, persist even after container is destroyed.
+ * 
+ * Package Installation Persistence:
+ * - npm packages: Installed to /workspace/.npm-global (persistent)
+ * - Python packages: Installed to /workspace/.python-packages (persistent)
+ * - Playwright browsers: Downloaded to /workspace/.playwright (persistent)
+ * - Package caches: Stored in /workspace/.npm-cache and /workspace/.pip-cache (persistent)
+ * 
+ * Environment Variables Set in Container:
+ * - HOME=/workspace
+ * - NPM_CONFIG_PREFIX=/workspace/.npm-global
+ * - NPM_CONFIG_CACHE=/workspace/.npm-cache
+ * - PYTHONUSERBASE=/workspace/.python-packages
+ * - PIP_CACHE_DIR=/workspace/.pip-cache
+ * - PLAYWRIGHT_BROWSERS_PATH=/workspace/.playwright
+ * - PATH includes /workspace/.npm-global/bin and /workspace/.python-packages/bin
  */
 export class PodmanSandbox {
   private containerId: string | null = null;
@@ -252,8 +269,8 @@ export class PodmanSandbox {
     }
   }
 
-  static async buildImage(): Promise<void> {
-    console.log('🔨 Building Alpine sandbox image...');
+  static async buildImage(quiet = false): Promise<void> {
+    if (!quiet) console.log('🔨 Building Alpine sandbox image...');
 
     const dockerfile = `
 FROM alpine:3.19
@@ -286,16 +303,16 @@ CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
     try {
       try {
         await exec('podman image inspect agent-sandbox:alpine');
-        console.log('✓ Image already exists');
+        if (!quiet) console.log('✓ Image already exists');
         return;
       } catch {}
 
-      console.log('Building image (this may take a few minutes)...');
+      console.log('Building sandbox image (this may take a few minutes)...');
       const buildCmd = `podman build -t agent-sandbox:alpine -f ${dockerfilePath} ${tmpDir}`;
       
       await new Promise<void>((resolve, reject) => {
         const process = spawn('podman', ['build', '-t', 'agent-sandbox:alpine', '-f', dockerfilePath, tmpDir], {
-          stdio: 'inherit',
+          stdio: quiet ? 'ignore' : 'inherit',
         });
 
         process.on('close', (code) => {
@@ -306,7 +323,7 @@ CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
         process.on('error', reject);
       });
 
-      console.log('✓ Image built successfully');
+      if (!quiet) console.log('✓ Image built successfully');
     } finally {
       await fs.unlink(dockerfilePath).catch(() => {});
     }
@@ -334,20 +351,76 @@ CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
 
     // Create workspace directory on host
     await fs.mkdir(this.workspaceDir, { recursive: true });
-    console.log(`✓ Workspace: ${this.workspaceDir}`);
-
-    console.log('Starting container...');
     
-    const containerName = `sandbox-${this.agentId}-${Date.now()}`;
+    // Create package directories in workspace for persistence
+    const packageDirs = [
+      path.join(this.workspaceDir, '.npm-global'),
+      path.join(this.workspaceDir, '.npm-global', 'lib'),
+      path.join(this.workspaceDir, '.npm-global', 'bin'),
+      path.join(this.workspaceDir, '.npm-cache'),
+      path.join(this.workspaceDir, '.python-packages'),
+      path.join(this.workspaceDir, '.pip-cache'),
+      path.join(this.workspaceDir, '.playwright'),
+    ];
+    
+    for (const dir of packageDirs) {
+      await fs.mkdir(dir, { recursive: true, mode: 0o777 });
+    }
+    
+    // Ensure all package directories have proper permissions (readable/writable by container user)
+    for (const dir of packageDirs) {
+      await fs.chmod(dir, 0o777);
+    }
+    
+    console.log(`✓ Workspace: ${this.workspaceDir}`);
+    console.log(`✓ Package directories initialized for persistence`);
+
+    // Use a consistent container name (no timestamp) for reusability
+    const containerName = `sandbox-${this.agentId}`;
+    
+    // Check if container already exists
+    try {
+      const { stdout: inspectOutput } = await exec(`podman container inspect ${containerName} --format json`);
+      const containerInfo = JSON.parse(inspectOutput)[0];
+      
+      if (containerInfo && containerInfo.Id) {
+        this.containerId = containerInfo.Id;
+        const isRunning = containerInfo.State?.Running || false;
+        
+        if (isRunning) {
+          console.log(`✓ Reusing existing running container: ${this.containerId!.substring(0, 12)}`);
+          this.isInitialized = true;
+          return;
+        } else {
+          // Container exists but is stopped - restart it
+          console.log(`✓ Found stopped container, restarting: ${this.containerId!.substring(0, 12)}`);
+          await exec(`podman start ${containerName}`);
+          console.log(`✓ Container restarted successfully`);
+          this.isInitialized = true;
+          return;
+        }
+      }
+    } catch (error) {
+      // Container doesn't exist, create a new one
+      console.log('Creating new container...');
+    }
     
     // IMPORTANT: The -v flag binds the host workspace to container
     // Files in workspaceDir persist on host even after container dies
+    // NO --rm flag so container persists and can be reused
     const createCmd = [
       'podman', 'run',
       '-d',
       '--name', containerName,
-      '--rm',
       '-v', `${this.workspaceDir}:/workspace:Z`, // ← THIS IS THE MAGIC
+      // Environment variables to redirect all package installations to /workspace
+      '-e', 'HOME=/workspace',                              // Set home to workspace
+      '-e', 'NPM_CONFIG_PREFIX=/workspace/.npm-global',     // npm global packages
+      '-e', 'NPM_CONFIG_CACHE=/workspace/.npm-cache',       // npm cache
+      '-e', 'PYTHONUSERBASE=/workspace/.python-packages',   // Python user packages
+      '-e', 'PIP_CACHE_DIR=/workspace/.pip-cache',          // pip cache
+      '-e', 'PLAYWRIGHT_BROWSERS_PATH=/workspace/.playwright', // Playwright browsers
+      '-e', 'PATH=/workspace/.npm-global/bin:/workspace/.python-packages/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
       '--memory', '512m',
       '--cpus', '0.5',
       '--network', 'bridge',
@@ -360,7 +433,7 @@ CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
     const { stdout } = await exec(createCmd);
     this.containerId = stdout.trim();
 
-    console.log(`✓ Container started: ${this.containerId.substring(0, 12)}`);
+    console.log(`✓ Container created: ${this.containerId.substring(0, 12)}`);
     console.log(`✓ Files will persist at: ${this.workspaceDir}`);
     this.isInitialized = true;
   }
@@ -531,17 +604,22 @@ CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
     options: { timeout?: number } = {}
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     let command: string;
-    let user: string = 'root';
+    let user: string = 'sandbox'; // Use sandbox user for workspace installations
 
     switch (type) {
       case 'python':
-        command = `pip3 install --break-system-packages ${packageName}`;
+        // Install to user base in workspace (no root required)
+        // Use --break-system-packages for Alpine's externally-managed environment
+        command = `pip3 install --user --break-system-packages ${packageName}`;
         break;
       case 'npm':
+        // Install globally to workspace npm prefix (no root required)
         command = `npm install -g ${packageName}`;
         break;
       case 'apk':
+        // APK requires root and installs to system (not workspace)
         command = `apk add ${packageName}`;
+        user = 'root';
         break;
     }
 
@@ -556,17 +634,21 @@ CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
     type: 'python' | 'npm' | 'apk' = 'python'
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     let command: string;
-    let user: string = 'root';
+    let user: string = 'sandbox'; // Use sandbox user for workspace installations
 
     switch (type) {
       case 'python':
+        // Uninstall from user base
         command = `pip3 uninstall -y ${packageName}`;
         break;
       case 'npm':
+        // Uninstall from workspace npm prefix
         command = `npm uninstall -g ${packageName}`;
         break;
       case 'apk':
+        // APK requires root
         command = `apk del ${packageName}`;
+        user = 'root';
         break;
     }
 
@@ -628,14 +710,22 @@ CMD ["/bin/sh", "-c", "while true; do sleep 1; done"]
   // ==================== CLEANUP ====================
 
   /**
-   * Stop and remove container (workspace persists!)
+   * Stop container (but keep it for reuse unless removeContainer is true)
+   * Workspace always persists unless deleteWorkspace is true
    */
-  async cleanup(options: { deleteWorkspace?: boolean } = {}): Promise<void> {
+  async cleanup(options: { deleteWorkspace?: boolean; removeContainer?: boolean } = {}): Promise<void> {
     if (this.containerId) {
       try {
         console.log('Stopping container...');
         await exec(`podman stop ${this.containerId}`, { timeout: 10000 });
-        console.log('✓ Container stopped and removed');
+        
+        if (options.removeContainer) {
+          console.log('Removing container...');
+          await exec(`podman rm ${this.containerId}`, { timeout: 10000 });
+          console.log('✓ Container stopped and removed');
+        } else {
+          console.log('✓ Container stopped (will be reused on next initialize)');
+        }
       } catch (error: any) {
         console.warn(`Warning: Failed to stop container: ${error.message}`);
       }
@@ -814,29 +904,83 @@ async function workspaceManagement() {
 
 // ==================== SETUP HELPER ====================
 
-export async function setupPodman(): Promise<void> {
-  console.log('🚀 Setting up Podman sandbox...\n');
+// Global default sandbox instance
+let defaultSandbox: PodmanSandbox | null = null;
+
+/**
+ * Get the default global Podman sandbox instance
+ */
+export function getDefaultSandbox(): PodmanSandbox | null {
+  return defaultSandbox;
+}
+
+/**
+ * Setup Podman and optionally start a persistent default container
+ */
+export async function setupPodman(quiet = false, options: {
+  autoStart?: boolean;
+  workspaceDir?: string;
+} = {}): Promise<PodmanSandbox | null> {
+  if (!quiet) console.log('🚀 Setting up Podman sandbox...\n');
 
   if (!(await PodmanSandbox.isPodmanAvailable())) {
-    console.error('❌ Podman is not installed!\n');
-    console.log('Please install Podman:');
-    console.log('  Linux:   https://podman.io/getting-started/installation');
-    console.log('  macOS:   brew install podman');
-    console.log('  Windows: https://github.com/containers/podman/blob/main/docs/tutorials/podman-for-windows.md\n');
+    if (!quiet) {
+      console.error('❌ Podman is not installed!\n');
+      console.log('Please install Podman:');
+      console.log('  Linux:   https://podman.io/getting-started/installation');
+      console.log('  macOS:   brew install podman');
+      console.log('  Windows: https://github.com/containers/podman/blob/main/docs/tutorials/podman-for-windows.md\n');
+    }
     throw new Error('Podman not installed');
   }
 
-  console.log('✓ Podman is installed\n');
+  if (!quiet) console.log('✓ Podman is installed\n');
 
-  await PodmanSandbox.buildImage();
+  await PodmanSandbox.buildImage(quiet);
 
-  console.log('\n✅ Setup complete!');
+  // Auto-start a persistent container if requested
+  if (options.autoStart) {
+    if (!quiet) console.log('🔄 Starting default persistent container...\n');
+    
+    const workspaceDir = options.workspaceDir || path.join(os.homedir(), '.sybil', 'podman-workspace');
+    defaultSandbox = new PodmanSandbox('sybil-default', workspaceDir);
+    
+    await defaultSandbox.initialize();
+    
+    if (!quiet) {
+      console.log(`✓ Default container started: ${defaultSandbox.getContainerId()?.substring(0, 12)}`);
+      console.log(`✓ Workspace: ${defaultSandbox.getWorkspacePath()}`);
+    }
+    
+    return defaultSandbox;
+  }
+
+  if (!quiet) console.log('\n✅ Setup complete!');
+  return null;
+}
+
+/**
+ * Cleanup the default sandbox instance
+ * By default, stops the container but keeps it for reuse
+ */
+export async function cleanupDefaultSandbox(options: { deleteWorkspace?: boolean; removeContainer?: boolean } = {}): Promise<void> {
+  if (defaultSandbox) {
+    await defaultSandbox.cleanup(options);
+    if (!options.removeContainer) {
+      // Don't null out the reference if we're keeping the container for reuse
+      console.log('ℹ️  Default sandbox will reuse container on next startup');
+    } else {
+      defaultSandbox = null;
+    }
+  }
 }
 
 export default PodmanSandbox;
 
 // Auto-run if executed directly
-if (require.main === module) {
+const isMainModule = typeof process !== 'undefined' && process.argv[1] && import.meta.url && fileURLToPath(import.meta.url) === process.argv[1];
+
+if (isMainModule) {
   (async () => {
     try {
       await setupPodman();

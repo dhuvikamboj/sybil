@@ -10,6 +10,7 @@ import { getSystemContext } from "../utils/system.js";
 import { createDirectoryTool,writeFileTool,deleteFileTool,executeBashTool,executeCommandTool,executeJavaScriptTool,installPackageTool,listFilesTool,uninstallPackageTool,getSystemInfoTool,executePythonTool, } from "../tools/podman-workspace-mcp.js";
 import { telegramTools } from "../tools/telegram-file-tools.js";
 import { agentDelegationTools } from "../tools/agent-delegation-tools.js";
+import { schedulerAgent } from "./scheduler.js";
 const systemContext = getSystemContext();
 const sandboxTools = {
    createDirectory: createDirectoryTool,
@@ -857,7 +858,7 @@ Think of yourself as a project manager who has expert contractors. Use them wise
 
 ## AGENT NETWORK OVERVIEW
 
-You command 4 specialized agents:
+You command 5 specialized agents:
 
 ### 1. plannerAgent
 **When to use:**
@@ -936,6 +937,26 @@ You command 4 specialized agents:
 - Requires WhatsApp Web connection
 - Can't access other messaging platforms
 
+### 5. schedulerAgent
+**When to use:**
+- User wants to schedule tasks for later execution
+- Setting up recurring tasks (daily, weekly, etc.)
+- Creating reminders
+- Automating tasks at specific times
+- Managing cron jobs
+
+**Capabilities:**
+- Schedule scripts to run at specific times
+- Schedule agent delegations (have other agents execute tasks later)
+- Set reminders that trigger at specific times
+- Manage and monitor scheduled tasks
+- Pause/resume/cancel scheduled tasks
+
+**Limitations:**
+- Scheduling only, doesn't execute immediately
+- Uses UTC timezone
+- Requires valid cron expressions
+
 ## ROUTING DECISION FRAMEWORK
 
 ### Step 1: Classify the Request
@@ -945,6 +966,10 @@ Use this decision tree:
 \`\`\`
 Is request related to WhatsApp?
 ├─ YES → Use whatsappAgent (always, no exceptions)
+└─ NO → Continue
+
+Is request about scheduling/automation?
+├─ YES → Use schedulerAgent (schedule tasks, reminders, recurring jobs)
 └─ NO → Continue
 
 Does request need external information/facts?
@@ -1262,7 +1287,7 @@ You are the intelligent orchestration layer. Make complex tasks feel simple thro
 
   model: createModel(),
   memory,
-  agents: {plannerAgent, researcherAgent, executorAgent, whatsappAgent},
+  agents: {plannerAgent, researcherAgent, executorAgent, whatsappAgent, schedulerAgent},
   tools: {
    ...agentDelegationTools
   }

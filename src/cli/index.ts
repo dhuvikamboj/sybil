@@ -20,6 +20,7 @@ import { updateCommand } from "./commands/update.js";
 import { whatsappCommand } from "./commands/whatsapp.js";
 import { otpCommand } from "./commands/otp.js";
 import { doctorCommand } from "./commands/doctor.js";
+import { schedulerCommand } from "./commands/scheduler.js";
 
 const program = new Command();
 
@@ -42,6 +43,7 @@ program.addCommand(updateCommand);
 program.addCommand(whatsappCommand);
 program.addCommand(otpCommand);
 program.addCommand(doctorCommand);
+program.addCommand(schedulerCommand);
 
 // Show banner only when no arguments provided
 if (process.argv.length <= 2) {

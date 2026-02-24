@@ -11,6 +11,7 @@ import {
   whatsappAgent,
   routingAgent,
 } from "../agents/network.js";
+import { schedulerAgent } from "../agents/scheduler.js";
 import { PinoLogger } from "@mastra/loggers";
 import PodmanSandbox from "../tools/podman-workspace.js";
 import podmanWorkspaceMCPServer from "../tools/podman-workspace-mcp.js";
@@ -26,6 +27,7 @@ export const mastra: Mastra = new Mastra({
     executorAgent,
     whatsappAgent,
     routingAgent,
+    schedulerAgent,
   },
   mcpServers:{
     podmanWorkspaceMCPServer,

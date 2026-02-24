@@ -2,6 +2,7 @@
 node_modules/
 .mastra
 .wwebjs_auth/
+workspace/
 # Build output
 dist/
 build/

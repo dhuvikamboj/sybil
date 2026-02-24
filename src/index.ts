@@ -6,6 +6,10 @@
  * Use of this source code is governed by the MIT license that can be
  * found in the LICENSE file.
  */
+
+// Increase max listeners to prevent MaxListenersExceededWarning from numerous dependencies
+process.setMaxListeners(20);
+
 import "dotenv/config";
 import { setupBot, stopBot } from "./utils/telegram.js";
 import { mastra } from "./mastra/index.js";
@@ -14,6 +18,11 @@ import { validateModelConfig, getProviderDisplayName, getModelConfig } from "./u
 import { logger } from "./utils/logger.js";
 import { dynamicToolRegistry } from "./tools/dynamic/registry.js";
 import { loadAutoReplyConfigFromEnv } from "./tools/whatsapp-autoreply-tools.js";
+import { schedulerService } from "./services/scheduler-service.js";
+import { SchedulerEventHandler } from "./services/scheduler-handler.js";
+import { setupPodman, cleanupDefaultSandbox } from "./tools/podman-workspace.js";
+import * as os from "os";
+import * as path from "path";
 
 async function main(): Promise<void> {
   console.log("🚀 Starting sybil...\n");
@@ -48,6 +57,25 @@ async function main(): Promise<void> {
   console.log(" - Storage: LibSQL (SQLite)");
   console.log(" - Memory: Working Memory + Semantic Recall enabled");
 
+  // Initialize Podman Workspace
+  try {
+    const autoStart = process.env.PODMAN_AUTO_START === 'true';
+    const workspaceDir = process.env.PODMAN_WORKSPACE_DIR || path.join(os.homedir(), '.sybil', 'podman-workspace');
+    
+    const sandbox = await setupPodman(false, { 
+      autoStart, 
+      workspaceDir 
+    });
+    
+    if (sandbox) {
+      console.log(` ✅ Podman container running and ready`);
+    } else {
+      console.log(` ✅ Podman setup complete (container will start on-demand)`);
+    }
+  } catch (error: any) {
+    console.warn(` ⚠️  Podman setup skipped: ${error.message}`);
+  }
+
   // Load dynamic tools
   try {
     await dynamicToolRegistry.loadAllTools();
@@ -69,6 +97,17 @@ async function main(): Promise<void> {
 
   // Setup Telegram bot
   setupBot();
+
+  // Initialize Scheduler
+  console.log("⏰ Initializing Scheduler...");
+  try {
+    const schedulerHandler = new SchedulerEventHandler(schedulerService);
+    const stats = schedulerService.getStats();
+    console.log(` ✅ Scheduler Ready: ${stats.totalTasks} tasks loaded (${stats.enabledTasks} enabled)`);
+  } catch (error) {
+    console.log(` ❌ Scheduler failed to initialize: ${error instanceof Error ? error.message : "Unknown error"}`);
+  }
+  console.log();
 
   // Initialize WhatsApp (auto-connect if session exists)
   console.log("📱 Initializing WhatsApp...");
@@ -97,22 +136,80 @@ async function main(): Promise<void> {
   console.log();
 
   // Handle graceful shutdown
-  process.on("SIGINT", async () => {
-    logger.info("APP", "Received SIGINT, shutting down gracefully");
-    console.log("\n\n⚠️  Received SIGINT, shutting down gracefully...");
-    await stopBot();
-    await whatsappManager.destroy();
-    logger.shutdown();
+  let isShuttingDown = false; // Prevent multiple shutdown attempts
+  
+  const doShutdown = async () => {
+    if (isShuttingDown) {
+      return; // Already shutting down
+    }
+    isShuttingDown = true;
+    
+    logger.info("APP", "Shutting down gracefully");
+    console.log("\n\n⚠️  Shutting down gracefully...");
+    
+    try {
+      await stopBot();
+    } catch (error) {
+      console.error("Error stopping bot:", error);
+    }
+    
+    try {
+      await whatsappManager.destroy();
+    } catch (error) {
+      console.error("Error destroying WhatsApp manager:", error);
+    }
+    
+    try {
+      schedulerService.shutdown();
+    } catch (error) {
+      console.error("Error shutting down scheduler:", error);
+    }
+    
+    // Cleanup Podman container
+    try {
+      await cleanupDefaultSandbox({ deleteWorkspace: false });
+      console.log("✓ Podman container stopped");
+    } catch (error) {
+      // Ignore cleanup errors
+    }
+    
+    try {
+      logger.shutdown();
+    } catch (error) {
+      console.error("Error shutting down logger:", error);
+    }
+    
+    console.log("✓ Shutdown complete");
+    
+    // Force exit after cleanup
     process.exit(0);
+  };
+
+  process.on("SIGINT", () => {
+    doShutdown().catch((error) => {
+      console.error("Fatal error during shutdown:", error);
+      process.exit(1);
+    });
   });
 
-  process.on("SIGTERM", async () => {
-    logger.info("APP", "Received SIGTERM, shutting down gracefully");
-    console.log("\n\n⚠️  Received SIGTERM, shutting down gracefully...");
-    await stopBot();
-    await whatsappManager.destroy();
-    logger.shutdown();
-    process.exit(0);
+  process.on("SIGTERM", () => {
+    doShutdown().catch((error) => {
+      console.error("Fatal error during shutdown:", error);
+      process.exit(1);
+    });
+  });
+  
+  // Handle uncaught exceptions
+  process.on("uncaughtException", (error) => {
+    logger.error("APP", "Uncaught exception", { error: error.message, stack: error.stack });
+    console.error("Uncaught exception:", error);
+    doShutdown().catch(() => process.exit(1));
+  });
+  
+  process.on("unhandledRejection", (reason, promise) => {
+    logger.error("APP", "Unhandled rejection", { reason, promise });
+    console.error("Unhandled rejection at:", promise, "reason:", reason);
+    // Don't exit on unhandled rejection, just log it
   });
 
   console.log("\n✨ sybil is fully operational!");

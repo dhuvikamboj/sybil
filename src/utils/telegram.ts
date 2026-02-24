@@ -131,8 +131,157 @@ async function sendTyping(chatId: number): Promise<void> {
   await bot.sendChatAction(chatId, "typing");
 }
 
+// Helper: Escape Markdown special characters
+function escapeMarkdownV1(text: string): string {
+  // Escape characters that have special meaning in Telegram's Markdown mode
+  // Note: Only escape when needed, preserve intentional formatting
+  
+  // First, temporarily mark intentional markdown patterns
+  const replacements: string[] = [];
+  const save = (match: string) => {
+    replacements.push(match);
+    return `\x00${replacements.length - 1}\x00`;
+  };
+  
+  // Save intentional formatting patterns
+  let processed = text
+    .replace(/\*\*[^*]+\*\*/g, save)  // Bold **text**
+    .replace(/\*[^*\n]+\*/g, save)    // Italic *text*
+    .replace(/`[^`]+`/g, save)        // Code `text`
+    .replace(/```[\s\S]*?```/g, save) // Code blocks
+    .replace(/\[[^\]]+\]\([^\)]+\)/g, save); // Links [text](url)
+  
+  // Escape remaining special characters that would break markdown
+  processed = processed
+    .replace(/([_*`[\]()])/g, '\\$1');
+  
+  // Restore intentional formatting
+  replacements.forEach((val, i) => {
+    processed = processed.replace(`\x00${i}\x00`, val);
+  });
+  
+  return processed;
+}
+
+// Helper: Send message with fallback for markdown errors
+async function sendMessageSafe(
+  chatId: number, 
+  text: string, 
+  options?: TelegramBot.SendMessageOptions
+): Promise<TelegramBot.Message> {
+  try {
+    return await bot.sendMessage(chatId, text, options);
+  } catch (error: any) {
+    // If markdown parsing fails, retry without parse_mode
+    if (error?.response?.body?.description?.includes("parse entities")) {
+      logger.warn("TELEGRAM", "Markdown parsing failed, sending as plain text", {
+        error: error.message,
+        textLength: text.length,
+      });
+      // Strip markdown and send as plain text
+      const plainText = text
+        .replace(/\*\*/g, '')
+        .replace(/\*/g, '')
+        .replace(/`/g, '')
+        .replace(/```[\s\S]*?```/g, (match) => match.replace(/```/g, '').trim());
+      return await bot.sendMessage(chatId, plainText);
+    }
+    throw error;
+  }
+}
+
+// Helper: Edit message with fallback for markdown errors
+async function editMessageSafe(
+  text: string,
+  options: TelegramBot.EditMessageTextOptions
+): Promise<void> {
+  try {
+    await bot.editMessageText(text, options);
+  } catch (error: any) {
+    // If markdown parsing fails, retry without parse_mode
+    if (error?.response?.body?.description?.includes("parse entities")) {
+      logger.warn("TELEGRAM", "Markdown parsing failed in edit, sending as plain text", {
+        error: error.message,
+        textLength: text.length,
+      });
+      // Strip markdown and retry without parse_mode
+      const plainText = text
+        .replace(/\*\*/g, '')
+        .replace(/\*/g, '')
+        .replace(/`/g, '')
+        .replace(/```[\s\S]*?```/g, (match) => match.replace(/```/g, '').trim());
+      await bot.editMessageText(plainText, {
+        ...options,
+        parse_mode: undefined,
+      });
+    }
+    // Ignore other errors (like edit conflicts)
+  }
+}
+
+// Helper: Check if text is valid Markdown
+function isValidMarkdown(text: string): boolean {
+  let depth = 0;
+  let inBold = 0;
+  let inItalic = 0;
+  let inCode = false;
+  let inCodeBlock = false;
+  
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i + 1];
+    
+    // Check for code blocks
+    if (char === '`' && nextChar === '`' && text[i + 2] === '`') {
+      inCodeBlock = !inCodeBlock;
+      i += 2;
+      continue;
+    }
+    
+    if (inCodeBlock) continue;
+    
+    // Check for inline code
+    if (char === '`' && !inCode) {
+      inCode = true;
+      continue;
+    } else if (char === '`' && inCode) {
+      inCode = false;
+      continue;
+    }
+    
+    if (inCode) continue;
+    
+    // Check for bold
+    if (char === '*' && nextChar === '*') {
+      inBold = inBold === 0 ? 1 : 0;
+      i++;
+      continue;
+    }
+    
+    // Check for italic (single star, but not part of bold)
+    if (char === '*' && nextChar !== '*') {
+      inItalic = inItalic === 0 ? 1 : 0;
+      continue;
+    }
+  }
+  
+  // Check brackets for links
+  const openBrackets = (text.match(/\[/g) || []).length;
+  const closeBrackets = (text.match(/\]/g) || []).length;
+  const openParens = (text.match(/\(/g) || []).length;
+  const closeParens = (text.match(/\)/g) || []).length;
+  
+  return inBold === 0 && inItalic === 0 && !inCode && !inCodeBlock && 
+         openBrackets === closeBrackets && openParens === closeParens;
+}
+
 // Helper: Format response for Telegram
 function formatForTelegram(text: string): string {
+  // Check if text has valid markdown, if not, escape it
+  if (!isValidMarkdown(text)) {
+    text = escapeMarkdownV1(text);
+  }
+  
   // Telegram has a 4096 character limit for messages
   if (text.length <= 4000) return text;
 
@@ -316,17 +465,15 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
           
           const formattedResponse = formatForTelegram(currentDisplay);
           if (lastMessageId) {
-            // Edit existing message (don't wait for previous edit)
-            pendingEdit = bot.editMessageText(formattedResponse, {
+            // Edit existing message with fallback
+            pendingEdit = editMessageSafe(formattedResponse, {
               chat_id: chatId,
               message_id: lastMessageId,
               parse_mode: "Markdown",
-            }).catch(() => {
-              // Ignore edit conflicts
             }) as Promise<void>;
           } else {
-            // Send first message
-            lastMessageId = await bot.sendMessage(chatId, formattedResponse, {
+            // Send first message with fallback
+            lastMessageId = await sendMessageSafe(chatId, formattedResponse, {
               parse_mode: "Markdown",
             }).then(msg => msg.message_id);
           }
@@ -369,12 +516,10 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
                 }
                 
                 const formattedResponse = formatForTelegram(currentDisplay);
-                pendingEdit = bot.editMessageText(formattedResponse, {
+                pendingEdit = editMessageSafe(formattedResponse, {
                   chat_id: chatId,
                   message_id: lastMessageId,
                   parse_mode: "Markdown",
-                }).catch(() => {
-                  // Ignore edit conflicts
                 }) as Promise<void>;
               }
               break;
@@ -404,12 +549,10 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
                 }
                 
                 const formattedResponse = formatForTelegram(currentDisplay);
-                pendingEdit = bot.editMessageText(formattedResponse, {
+                pendingEdit = editMessageSafe(formattedResponse, {
                   chat_id: chatId,
                   message_id: lastMessageId,
                   parse_mode: "Markdown",
-                }).catch(() => {
-                  // Ignore edit conflicts
                 }) as Promise<void>;
               }
               
@@ -499,7 +642,7 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
               // Fallback: send truncated message
               const truncatedResponse = fullText.substring(0, TELEGRAM_LIMIT - 100) + 
                 "\n\n...[Response truncated - too long to display]";
-              await bot.sendMessage(chatId, truncatedResponse, {
+              await sendMessageSafe(chatId, truncatedResponse, {
                 parse_mode: "Markdown",
               });
             }
@@ -509,19 +652,19 @@ export async function handleMessage(msg: TelegramBot.Message): Promise<void> {
             if (lastMessageId) {
               await (pendingEdit || Promise.resolve());
               try {
-                await bot.editMessageText(formattedResponse, {
+                await editMessageSafe(formattedResponse, {
                   chat_id: chatId,
                   message_id: lastMessageId,
                   parse_mode: "Markdown",
                 });
               } catch {
                 // If editing failed, send new message
-                await bot.sendMessage(chatId, formattedResponse, {
+                await sendMessageSafe(chatId, formattedResponse, {
                   parse_mode: "Markdown",
                 });
               }
             } else {
-              await bot.sendMessage(chatId, formattedResponse, {
+              await sendMessageSafe(chatId, formattedResponse, {
                 parse_mode: "Markdown",
               });
             }
@@ -604,7 +747,7 @@ async function handleCreateToolCommand(chatId: number, description: string, user
       }
     );
 
-    await bot.sendMessage(chatId, `✅ Tool creation response:\n\n${result.text}`, { parse_mode: "Markdown" });
+    await sendMessageSafe(chatId, `✅ Tool creation response:\n\n${result.text}`, { parse_mode: "Markdown" });
   } catch (error) {
     console.error("Error creating tool:", error);
     await bot.sendMessage(chatId, "Sorry, I couldn't create the tool. Please try again.");
@@ -627,7 +770,7 @@ async function handleListToolsCommand(chatId: number, userId?: number): Promise<
       }
     );
 
-    await bot.sendMessage(chatId, `📋 Available Tools:\n\n${result.text}`, { parse_mode: "Markdown" });
+    await sendMessageSafe(chatId, `📋 Available Tools:\n\n${result.text}`, { parse_mode: "Markdown" });
   } catch (error) {
     console.error("Error listing tools:", error);
     await bot.sendMessage(chatId, "Sorry, I couldn't list the tools. Please try again.");
@@ -652,7 +795,7 @@ async function handleCreateSkillCommand(chatId: number, description: string, use
       }
     );
 
-    await bot.sendMessage(chatId, `✅ Skill creation response:\n\n${result.text}`, { parse_mode: "Markdown" });
+    await sendMessageSafe(chatId, `✅ Skill creation response:\n\n${result.text}`, { parse_mode: "Markdown" });
   } catch (error) {
     console.error("Error creating skill:", error);
     await bot.sendMessage(chatId, "Sorry, I couldn't create the skill. Please try again.");
@@ -675,7 +818,7 @@ async function handleListSkillsCommand(chatId: number, userId?: number): Promise
       }
     );
 
-    await bot.sendMessage(chatId, `🎓 Learned Skills:\n\n${result.text}`, { parse_mode: "Markdown" });
+    await sendMessageSafe(chatId, `🎓 Learned Skills:\n\n${result.text}`, { parse_mode: "Markdown" });
   } catch (error) {
     console.error("Error listing skills:", error);
     await bot.sendMessage(chatId, "Sorry, I couldn't list the skills. Please try again.");
@@ -704,7 +847,7 @@ async function handleWorkspaceCommand(chatId: number, action: string, userId?: n
       },
     });
 
-    await bot.sendMessage(chatId, `🗂️ Workspace ${action}:\n\n${result.text}`, { parse_mode: "Markdown" });
+    await sendMessageSafe(chatId, `🗂️ Workspace ${action}:\n\n${result.text}`, { parse_mode: "Markdown" });
   } catch (error) {
     console.error("Error in workspace command:", error);
     await bot.sendMessage(chatId, "Sorry, I couldn't execute the workspace command. Please try again.");
@@ -1769,7 +1912,7 @@ async function handleAutoReplyCommand(chatId: number, userId?: number): Promise<
       },
     });
 
-    await bot.sendMessage(chatId, result.text, { parse_mode: "Markdown" });
+    await sendMessageSafe(chatId, result.text, { parse_mode: "Markdown" });
   } catch (error) {
     console.error("Error getting auto-reply status:", error);
     await bot.sendMessage(chatId, "Sorry, I couldn't get the auto-reply status. Please try again.");
@@ -1799,7 +1942,7 @@ async function handleAutoReplyConfigCommand(
       },
     });
 
-    await bot.sendMessage(chatId, result.text, { parse_mode: "Markdown" });
+    await sendMessageSafe(chatId, result.text, { parse_mode: "Markdown" });
   } catch (error) {
     console.error("Error configuring auto-reply:", error);
     await bot.sendMessage(chatId, "Sorry, I couldn't configure auto-reply. Please try again.");
@@ -1839,7 +1982,7 @@ async function handleApproveReplyCommand(
       }
     );
 
-    await bot.sendMessage(chatId, result.text, { parse_mode: "Markdown" });
+    await sendMessageSafe(chatId, result.text, { parse_mode: "Markdown" });
   } catch (error) {
     console.error("Error approving reply:", error);
     await bot.sendMessage(chatId, "Sorry, I couldn't send the approved reply. Please try again.");

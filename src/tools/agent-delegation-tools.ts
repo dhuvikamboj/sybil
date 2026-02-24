@@ -25,6 +25,7 @@ async function delegateToAgent(
       researcher: "researcherAgent", 
       executor: "executorAgent",
       whatsapp: "whatsappAgent",
+      scheduler: "schedulerAgent",
     };
     
     const targetAgentId = agentIdMap[agentName];
@@ -82,9 +83,9 @@ async function delegateToAgent(
  */
 export const delegateToAgentTool = createTool({
   id: "delegate-to-agent",
-  description: "Delegate a task to another specialized agent. Use this when the current agent lacks the specific expertise needed for a sub-task. Available agents: planner (complex planning), researcher (information gathering), executor (code/actions), whatsapp (messaging and communication).",
+  description: "Delegate a task to another specialized agent. Use this when the current agent lacks the specific expertise needed for a sub-task. Available agents: planner (complex planning), researcher (information gathering), executor (code/actions), whatsapp (messaging and communication), scheduler (task scheduling and cron jobs).",
   inputSchema: z.object({
-    agentName: z.enum(["planner", "researcher", "executor", "whatsapp"]).describe("Which agent to delegate to"),
+    agentName: z.enum(["planner", "researcher", "executor", "whatsapp", "scheduler"]).describe("Which agent to delegate to"),
     task: z.string().describe("Clear description of what the agent should do"),
     context: z.string().optional().describe("Additional context or background information"),
     timeout: z.number().optional().describe("Timeout in milliseconds (default: 60000)"),
@@ -286,6 +287,66 @@ export const delegateToWhatsAppTool = createTool({
   },
 });
 
+/**
+ * Tool: Delegate to Scheduler Agent
+ * Specialized tool for scheduling and time-based automation tasks
+ */
+export const delegateToSchedulerTool = createTool({
+  id: "delegate-to-scheduler",
+  description: "Delegate a scheduling task to the Scheduler Agent. Use for: scheduling tasks, setting reminders, managing cron jobs, scheduling agent delegations, time-based automation. Returns task details with schedule confirmation.",
+  inputSchema: z.object({
+    task: z.string().describe("Scheduling task to perform (e.g., 'Schedule a daily report at 9 AM', 'Remind me every Friday at 4 PM')"),
+    cronExpression: z.string().optional().describe("Cron expression if known (e.g., '0 9 * * *' for daily at 9 AM)"),
+    taskType: z.enum(["script", "agent", "reminder", "command"]).optional().describe("Type of task to schedule"),
+    target: z.string().optional().describe("Target agent name, script path, or command"),
+  }),
+  outputSchema: z.object({
+    success: z.boolean(),
+    result: z.string(),
+    taskId: z.string().optional(),
+    nextRun: z.string().optional(),
+    error: z.string().optional(),
+  }),
+  execute: async (inputData, context) => {
+    const { task, cronExpression, taskType, target } = inputData;
+    
+    let fullTask = task;
+    if (cronExpression) {
+      fullTask += `\n\nSuggested cron: ${cronExpression}`;
+    }
+    if (taskType) {
+      fullTask += `\nTask type: ${taskType}`;
+    }
+    if (target) {
+      fullTask += `\nTarget: ${target}`;
+    }
+    
+    const result = await delegateToAgent("scheduler", fullTask, context, 60000);
+    
+    // Extract task ID from result (simple heuristic)
+    let taskId: string | undefined;
+    let nextRun: string | undefined;
+    if (result.success && result.result) {
+      const idMatch = result.result.match(/task[-\w]+/i);
+      if (idMatch) {
+        taskId = idMatch[0];
+      }
+      const nextRunMatch = result.result.match(/next run[:\s]+([^\n]+)/i);
+      if (nextRunMatch) {
+        nextRun = nextRunMatch[1];
+      }
+    }
+    
+    return {
+      success: result.success,
+      result: result.result,
+      taskId,
+      nextRun,
+      error: result.error,
+    };
+  },
+});
+
 
 
 
@@ -296,6 +357,7 @@ export const agentDelegationTools = {
   delegateToResearcher: delegateToResearcherTool,
   delegateToExecutor: delegateToExecutorTool,
   delegateToWhatsApp: delegateToWhatsAppTool,
+  delegateToScheduler: delegateToSchedulerTool,
 };
 
 export default agentDelegationTools;
